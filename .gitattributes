@@ -1,0 +1,27 @@
+# Line endings are left exactly as they are on disk.
+#
+# Every source file in this project is already LF, consistently, so there is nothing for
+# normalisation to fix — and a normalising repository that guesses wrong rewrites files on
+# checkout, which turns "I changed one line" into a diff of the whole file. Off is simpler
+# and cannot be wrong here.
+* -text
+
+# Unreal's assets are binary. Marking them stops git from trying to diff or merge them, which
+# it cannot do usefully anyway: the answer to a conflict in a .umap is to pick one side.
+*.uasset binary
+*.umap   binary
+*.upk    binary
+*.udk    binary
+
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.tga  binary
+*.bmp  binary
+*.psd  binary
+*.fbx  binary
+*.wav  binary
+*.mp3  binary
+*.ogg  binary
+*.ttf  binary
+*.otf  binary

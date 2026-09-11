@@ -1,0 +1,61 @@
+# ---------------------------------------------------------------- build output
+#
+# Everything here is produced from the sources and weighs far more than them. The three
+# MazeForge .pdb files alone are 195 MB; a repository that carries them gets slow in a week
+# and never gets fast again.
+#
+# A bare directory name matches at any depth, so this covers both the project's own folders
+# and the ones inside Plugins/MazeForge.
+
+Binaries/
+Intermediate/
+DerivedDataCache/
+Build/
+
+# Logs, autosaves, crash reports, the cooked output. None of it is a source, and Saved/ is
+# also where the editor writes while it runs — tracking it means a dirty tree at all times.
+Saved/
+
+# ---------------------------------------------------------------- generated project files
+#
+# UnrealBuildTool regenerates these from the .uproject and the .Build.cs files. Right-click
+# the .uproject and choose "Generate Visual Studio project files" after a fresh clone.
+
+*.sln
+*.slnx
+*.suo
+*.sdf
+*.opensdf
+*.opendb
+*.VC.db
+*.VC.opendb
+*.xcodeproj
+*.xcworkspace
+
+# ---------------------------------------------------------------- editors and IDEs
+
+.vs/
+.idea/
+.vscode/
+
+# ---------------------------------------------------------------- operating systems
+
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+.DS_Store
+
+# ---------------------------------------------------------------- not ignored, on purpose
+#
+# Content/ IS tracked, including Content/MazeForge/Maps and Content/MazeForge/Meshes, which
+# the export regenerates. They are ~400 KB today and a checkout that includes them is a
+# checkout that opens without errors — MainLevel names those sublevels, and without them the
+# map complains on load.
+#
+# The trade is binary churn: every Apply Changes rewrites a dozen .uasset and .umap files,
+# and git stores each version whole. If the repository ever gets heavy, the fix is to add
+#
+#     Content/MazeForge/Maps/
+#     Content/MazeForge/Meshes/
+#
+# here and accept that a fresh clone needs one Apply Changes before MainLevel is happy.
