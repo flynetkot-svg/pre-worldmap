@@ -4,32 +4,7 @@
 #include "Engine/DataAsset.h"
 #include "MazeWorldGraph.generated.h"
 
-class UMazeGridAsset;
 class UMazeWorldManifest;
-
-/** One maze on the world map. */
-USTRUCT(BlueprintType)
-struct MAZEFORGECORE_API FMazeWorldNode
-{
-	GENERATED_BODY()
-
-	/**
-	 *  The maze itself, so the world map can draw its schematic.
-	 *
-	 *  Editor-side only. A grid asset is megabytes of cells and the game must never load one —
-	 *  which is why the links below name the manifest and not this.
-	 */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
-	TSoftObjectPtr<UMazeGridAsset> Maze;
-
-	/** What the links and the runtime use. Taken from the maze's Built Manifest when it is added. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
-	TSoftObjectPtr<UMazeWorldManifest> Manifest;
-
-	/** Where this maze's schematic sits on the map, in map units. Set by dragging it there. */
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
-	FVector2D MapPosition = FVector2D::ZeroVector;
-};
 
 /**
  *  One transition, in one direction.
@@ -81,8 +56,16 @@ class MAZEFORGECORE_API UMazeWorldGraph : public UDataAsset
 	GENERATED_BODY()
 
 public:
+	/**
+	 *  The mazes this world is made of, by manifest.
+	 *
+	 *  The manifest and nothing else, deliberately. It already carries everything both halves
+	 *  need — the room rectangles the map draws the schematic from, and the transition points it
+	 *  draws as squares — so a second reference to the grid asset would be a second thing to
+	 *  keep in step with the first, and the first is the only one the game can load.
+	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
-	TArray<FMazeWorldNode> Mazes;
+	TArray<TSoftObjectPtr<UMazeWorldManifest>> Mazes;
 
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
 	TArray<FMazeWorldLink> Links;
@@ -90,8 +73,8 @@ public:
 	/** Where the link starting at this gate leads, or null. */
 	const FMazeWorldLink* FindLinkFrom(const UMazeWorldManifest* FromMaze, int32 FromId) const;
 
-	/** The node for a manifest, or null. */
-	const FMazeWorldNode* FindNode(const UMazeWorldManifest* ForManifest) const;
+	/** Whether this maze is on the map at all. */
+	bool HasMaze(const UMazeWorldManifest* Manifest) const;
 
 	/** The editor and the world map listen: the graph changed, redraw. */
 	DECLARE_MULTICAST_DELEGATE(FOnMazeWorldGraphChanged);

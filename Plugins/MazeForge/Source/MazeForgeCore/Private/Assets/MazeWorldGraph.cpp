@@ -22,18 +22,18 @@ const FMazeWorldLink* UMazeWorldGraph::FindLinkFrom(const UMazeWorldManifest* Fr
 	});
 }
 
-const FMazeWorldNode* UMazeWorldGraph::FindNode(const UMazeWorldManifest* ForManifest) const
+bool UMazeWorldGraph::HasMaze(const UMazeWorldManifest* Manifest) const
 {
-	if (!ForManifest)
+	if (!Manifest)
 	{
-		return nullptr;
+		return false;
 	}
 
-	const FSoftObjectPath Path(ForManifest);
+	const FSoftObjectPath Path(Manifest);
 
-	return Mazes.FindByPredicate([&Path](const FMazeWorldNode& Node)
+	return Mazes.ContainsByPredicate([&Path](const TSoftObjectPtr<UMazeWorldManifest>& Entry)
 	{
-		return Node.Manifest.ToSoftObjectPath() == Path;
+		return Entry.ToSoftObjectPath() == Path;
 	});
 }
 

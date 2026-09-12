@@ -5,6 +5,7 @@
 #include "Engine/LevelStreaming.h"
 #include "GameFramework/Actor.h"
 #include "MazeRoomPool.h"
+#include "Spawner/MazeObjectIdComponent.h"
 #include "Camera/CameraTypes.h"
 #include "Camera/PlayerCameraManager.h"
 #include "GameFramework/Character.h"
@@ -39,6 +40,47 @@ void UMazeStreamingComponent::BeginPlay()
 			Subsystem->RegisterObserver(this);
 		}
 	}
+}
+
+bool UMazeStreamingComponent::TakeTransitionFor(AActor* Traveller, AActor* Gate)
+{
+	if (!Gate)
+	{
+		UE_LOG(LogMazeForge, Error,
+			TEXT("Take Transition For was given no gate. Wire Self into the Gate pin."));
+		return false;
+	}
+
+	const int32 PlacementId = UMazeObjectIdComponent::GetPlacementId(Gate);
+	if (PlacementId == 0)
+	{
+		// Either this actor was placed by hand rather than built by the export, or its library
+		// type is not a Gate. Both are configuration, and both look identical from the game.
+		UE_LOG(LogMazeForge, Error,
+			TEXT("%s carries no placement id, so it is not a gate the export built. Check that "
+			     "its library type has Transition Role = Gate, and that the maze has been built "
+			     "since the point was placed."),
+			*GetNameSafe(Gate));
+		return false;
+	}
+
+	UMazeStreamingComponent* Component = Traveller
+		? Traveller->FindComponentByClass<UMazeStreamingComponent>()
+		: nullptr;
+
+	if (!Component)
+	{
+		// The silence this whole function exists to end: whatever walked in is not the player,
+		// and the three-node version of this had no way of saying so.
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("%s walked into gate %d but has no MazeForge Streaming component, so it is not "
+			     "the player and nothing happens. Set the volume to overlap Pawn only, or check "
+			     "that the component really is on the character."),
+			*GetNameSafe(Traveller), PlacementId);
+		return false;
+	}
+
+	return Component->TakeTransition(PlacementId);
 }
 
 bool UMazeStreamingComponent::TakeTransition(const int32 PlacementId)
@@ -137,6 +179,7 @@ void UMazeStreamingComponent::SwitchToMazeAtLocation(TSoftObjectPtr<UMazeWorldMa
 
 	Manifest = NewManifest;
 	bAwaitingMaze = true;
+	AwaitingSinceSeconds = GetWorld() ? GetWorld()->GetTimeSeconds() : 0.0f;
 
 	// Moved here, before the subsystem's next tick, and deliberately. See the header: the pool
 	// scores rooms by where the observer is, so the move has to happen first or there is
@@ -147,10 +190,29 @@ void UMazeStreamingComponent::SwitchToMazeAtLocation(TSoftObjectPtr<UMazeWorldMa
 		{
 			Owner->SetActorLocation(EntryLocation, false, nullptr, ETeleportType::TeleportPhysics);
 		}
+
+		CutCamera();
 	}
 
 	UE_LOG(LogMazeForge, Log, TEXT("Streaming: switching to manifest %s, entry at %s."),
 		*Manifest.ToString(), *EntryLocation.ToString());
+}
+
+void UMazeStreamingComponent::CutCamera() const
+{
+	// A side-view camera follows the player by interpolating towards him every frame, which is
+	// right for walking and wrong for a door: a jump of tens of thousands of units reads to it
+	// as a very fast run, and it sets off across the world in plain sight. The engine has one
+	// word for "this is a cut, do not interpolate", and it has to be said in the same frame as
+	// the teleport — hence here, next to the move, rather than left to the game to remember.
+	const AActor* Owner = GetOwner();
+	const APlayerController* Controller =
+		Owner ? Owner->GetInstigatorController<APlayerController>() : nullptr;
+
+	if (APlayerCameraManager* CameraManager = Controller ? Controller->PlayerCameraManager : nullptr)
+	{
+		CameraManager->SetGameCameraCutThisFrame();
+	}
 }
 
 bool UMazeStreamingComponent::IsCurrentRoomLoaded() const
@@ -188,14 +250,47 @@ void UMazeStreamingComponent::NotifyStreamingUpdated(const UMazeRoomPool& InPool
 	const FMazeRoomRuntime* State = InPool.GetRooms().Find(CurrentRoomId);
 	const ULevelStreaming* Streaming = State ? State->Streaming.Get() : nullptr;
 
+	const UWorld* World = GetWorld();
+	const float Waited = World ? World->GetTimeSeconds() - AwaitingSinceSeconds : 0.0f;
+
 	// Visible and not merely loaded: a level that is loaded but not yet added to the world is
 	// geometry the player would fall through, and fading back in there is worse than waiting.
 	if (Streaming && Streaming->IsLevelLoaded() && Streaming->IsLevelVisible())
 	{
+		// Held back until the transition has lasted at least its minimum. See the header: the
+		// room is very often up in the same frame as the switch, and a fade that comes straight
+		// back reads as a glitch. The package name is logged because it is the one thing that
+		// separates "the destination was already in memory" from "the level we are looking at
+		// is the one we just left, still reporting visible while its unload catches up".
+		if (Waited < MinimumTransitionSeconds)
+		{
+			return;
+		}
+
 		bAwaitingMaze = false;
 
-		UE_LOG(LogMazeForge, Log, TEXT("Streaming: room %s is up — the maze is ready."),
-			*CurrentRoomId.ToString());
+		UE_LOG(LogMazeForge, Log,
+			TEXT("Streaming: room %s (%s) is up — the maze is ready, %.2f s after the switch."),
+			*CurrentRoomId.ToString(), *Streaming->GetWorldAssetPackageName(), Waited);
+
+		OnMazeReady.Broadcast();
+		return;
+	}
+
+	// The room may never come up: a manifest naming levels that are not attached, a room id the
+	// player is standing outside of, a load that failed. The game is holding a black screen on
+	// this event, so never arriving means never coming back — a hang with no message, which is
+	// the worst failure this plugin can produce. Better a visibly broken arrival than a dead
+	// screen, and an error line that says which room did not come up.
+	if (MazeReadyTimeoutSeconds > 0.0f && Waited > MazeReadyTimeoutSeconds)
+	{
+		bAwaitingMaze = false;
+
+		UE_LOG(LogMazeForge, Error,
+			TEXT("Streaming: room %s did not come up within %.1f s of the switch to %s. "
+			     "Releasing anyway so the game is not left waiting. Check that the room exists "
+			     "in that manifest and that its level is attached to the map."),
+			*CurrentRoomId.ToString(), MazeReadyTimeoutSeconds, *Manifest.ToString());
 
 		OnMazeReady.Broadcast();
 	}

@@ -91,6 +91,23 @@ public:
 	bool TakeTransition(int32 PlacementId);
 
 	/**
+	 *  The whole of a door in one node: who walked in, and which door it was.
+	 *
+	 *  `Traveller` is the Other Actor from the overlap, `Gate` is the door itself — wire Self to
+	 *  it, or leave it, since it defaults to Self. Everything else it works out: the placement id
+	 *  off the gate's own id component, the streaming component off the traveller.
+	 *
+	 *  It exists because the three-node version — find the component, check it, call it — has two
+	 *  places to wire the wrong pin, and both of them fail *silently*: a Blueprint call on a null
+	 *  target simply does not happen, and an Is Valid in front of it turns that into a branch
+	 *  nobody sees. A door that does nothing and says nothing is the hardest kind to fix, so this
+	 *  one says something on every path it can fail on.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "MazeForge",
+		meta = (DisplayName = "Take Transition For", DefaultToSelf = "Gate"))
+	static bool TakeTransitionFor(AActor* Traveller, AActor* Gate);
+
+	/**
 	 *  Switch to a maze, arriving at one of its transition points.
 	 *
 	 *  What TakeTransition calls once the graph has answered. Useful on its own for a scripted
@@ -108,8 +125,42 @@ public:
 	UFUNCTION(BlueprintPure, Category = "MazeForge")
 	bool IsCurrentRoomLoaded() const;
 
+	/**
+	 *  Fires when the room the observer arrived in is loaded AND visible.
+	 *
+	 *  This is what a fade-in binds to: the screen goes black when a door is taken and comes
+	 *  back here, so the player never sees the empty world between the two mazes.
+	 */
 	UPROPERTY(BlueprintAssignable, Category = "MazeForge")
 	FMazeOnMazeReady OnMazeReady;
+
+	/**
+	 *  The shortest a transition is allowed to take, whatever the streaming says.
+	 *
+	 *  Readiness is not the only thing a fade is waiting for. The destination room is often
+	 *  already loaded — every sublevel attached to the map arrives in PIE loaded, and a link
+	 *  back into a maze that is still in memory needs nothing at all — and then the room is up
+	 *  in the same frame as the switch. The screen blinks and the player is somewhere else,
+	 *  which reads as a fault rather than a door.
+	 *
+	 *  So OnMazeReady waits for both: the room up, and this much time gone. Zero restores the
+	 *  old behaviour of firing the moment the room is up.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MazeForge",
+		meta = (ClampMin = "0.0", UIMax = "3.0"))
+	float MinimumTransitionSeconds = 0.5f;
+
+	/**
+	 *  How long to wait for that room before firing OnMazeReady anyway, with an error.
+	 *
+	 *  A safety catch, not a feature. Whatever holds a black screen on OnMazeReady has no other
+	 *  way out, so a room that never comes up would hang the game with nothing on screen and
+	 *  nothing in the log. Zero disables the catch, which is only sensible while hunting
+	 *  exactly that fault.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MazeForge",
+		meta = (ClampMin = "0.0", UIMax = "15.0"))
+	float MazeReadyTimeoutSeconds = 5.0f;
 
 	/** Called by the subsystem after each pool update. Not for game code. */
 	void NotifyStreamingUpdated(const UMazeRoomPool& InPool, FName CurrentRoomId);
@@ -119,6 +170,14 @@ public:
 
 	/** Fixes up the camera bounds through reflection, to avoid a dependency on the game module. */
 	void ApplyCameraBounds(const UMazeWorldManifest& InManifest) const;
+
+	/**
+	 *  Tells the camera that this frame is a cut, not a movement.
+	 *
+	 *  Called from the switch itself. A following camera cannot tell a teleport from a sprint,
+	 *  and without this it travels the whole distance between two mazes on screen.
+	 */
+	void CutCamera() const;
 
 protected:
 	/**
@@ -136,4 +195,7 @@ protected:
 private:
 	/** Set by SwitchToMaze, cleared when OnMazeReady fires. Nothing else broadcasts it. */
 	bool bAwaitingMaze = false;
+
+	/** World time of that switch, so the timeout above has something to measure from. */
+	float AwaitingSinceSeconds = 0.0f;
 };

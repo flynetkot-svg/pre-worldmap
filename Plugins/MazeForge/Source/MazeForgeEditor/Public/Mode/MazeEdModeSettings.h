@@ -320,6 +320,16 @@ public:
 		meta = (DisplayName = "Clear All Changes", DisplayPriority = "2"))
 	void ClearMaze();
 
+	/**
+	 *  Opens the world map — how this game's mazes join up.
+	 *
+	 *  Here rather than only under Window because it belongs to this job: the transition points
+	 *  are drawn with the brush two groups above, and the links between them are drawn there.
+	 */
+	UFUNCTION(CallInEditor, Category = "Advanced",
+		meta = (DisplayName = "Open World Map", DisplayPriority = "0"))
+	void OpenWorldMap();
+
 	UFUNCTION(CallInEditor, Category = "Advanced",
 		meta = (DisplayName = "Build Depth Volume", DisplayPriority = "1"))
 	void BuildDepthVolume();

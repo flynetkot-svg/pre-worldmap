@@ -1,9 +1,15 @@
 ﻿#include "MazeForgeEditor.h"
 
+#include "Framework/Docking/TabManager.h"
 #include "MazeForgeCore.h"
 #include "Mode/MazeEdModeSettingsDetails.h"
 #include "Modules/ModuleManager.h"
 #include "PropertyEditorModule.h"
+#include "Styling/AppStyle.h"
+#include "Widgets/Docking/SDockTab.h"
+#include "World/SMazeWorldMap.h"
+#include "WorkspaceMenuStructure.h"
+#include "WorkspaceMenuStructureModule.h"
 
 #define LOCTEXT_NAMESPACE "MazeForgeEditor"
 
@@ -28,11 +34,33 @@ void FMazeForgeEditorModule::StartupModule()
 		MazeEdModeSettingsName,
 		FOnGetDetailCustomizationInstance::CreateStatic(&FMazeEdModeSettingsDetails::MakeInstance));
 
+	// The world map is a nomad tab and not an asset editor, and that is a workflow choice: it is
+	// meant to sit open beside the maze editor while both are worked on, and an asset editor
+	// window that has to be reopened every time the graph is touched would not.
+	FGlobalTabmanager::Get()
+		->RegisterNomadTabSpawner(SMazeWorldMap::TabId,
+			FOnSpawnTab::CreateLambda([](const FSpawnTabArgs&)
+			{
+				return SNew(SDockTab)
+					.TabRole(ETabRole::NomadTab)
+					[
+						SNew(SMazeWorldMap)
+					];
+			}))
+		.SetDisplayName(LOCTEXT("MazeWorldMapTab", "MazeForge World Map"))
+		.SetTooltipText(LOCTEXT("MazeWorldMapTabTip",
+			"How this game's mazes join up: the schematics, their transition points, and the "
+			"links between them."))
+		.SetGroup(WorkspaceMenu::GetMenuStructure().GetLevelEditorCategory())
+		.SetIcon(FSlateIcon(FAppStyle::GetAppStyleSetName(), "LevelEditor.Tabs.Levels"));
+
 	UE_LOG(LogMazeForge, Log, TEXT("MazeForgeEditor started."));
 }
 
 void FMazeForgeEditorModule::ShutdownModule()
 {
+	FGlobalTabmanager::Get()->UnregisterNomadTabSpawner(SMazeWorldMap::TabId);
+
 	// Fetched rather than loaded: on editor shutdown the property editor may already be gone, and
 	// LoadModuleChecked would bring a dying module back to life just to unregister from it.
 	if (FPropertyEditorModule* PropertyEditorModule =

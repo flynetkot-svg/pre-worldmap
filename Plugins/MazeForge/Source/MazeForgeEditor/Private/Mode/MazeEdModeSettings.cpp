@@ -9,8 +9,10 @@
 #include "Export/MazeBakery.h"
 #include "Export/MazeLevelAttacher.h"
 #include "Export/MazeLevelExporter.h"
+#include "Framework/Docking/TabManager.h"
 #include "MazeForgeCore.h"
 #include "Render/MazeEditorStyleAsset.h"
+#include "World/SMazeWorldMap.h"
 
 namespace
 {
@@ -287,6 +289,11 @@ void UMazeEdModeSettings::ClearMaze()
 }
 
 // ----------------------------------------------------------------------- 2. shape
+
+void UMazeEdModeSettings::OpenWorldMap()
+{
+	FGlobalTabmanager::Get()->TryInvokeTab(SMazeWorldMap::TabId);
+}
 
 void UMazeEdModeSettings::BuildDepthVolume()
 {

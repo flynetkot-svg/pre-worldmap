@@ -608,6 +608,25 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			Settings->ActiveDepthSlice, Grid.DepthCells() - 1, BandName,
 			Settings->BrushSize, Grid.NumCells(), Asset->Rooms.Num());
 
+		// The slice indicator above belongs to the CELL brush. The object brush does not use it
+		// at all — it uses Paint Band — and the two disagreeing in silence is what put eight
+		// gates into the background while the frame said PLAY in capital letters.
+		if (Settings->Tool == EMazeEditTool::Objects)
+		{
+			const EMazeDepthBand ObjectBand = Settings->PaintBand;
+
+			if (ObjectBand == EMazeDepthBand::Play)
+			{
+				Status += TEXT("  |  objects -> PLAY");
+			}
+			else
+			{
+				Status += FString::Printf(
+					TEXT("  |  objects -> %s — THE PLAYER NEVER GOES THERE"),
+					ObjectBand == EMazeDepthBand::Background ? TEXT("BACKGROUND") : TEXT("FOREGROUND"));
+			}
+		}
+
 		// An empty Foreground is the default and it is deliberate — it is the cutaway of the
 		// original, and the designer's workspace for near-plane decor. But "there is nothing
 		// here" and "nothing is ever built here" look identical in the frame, and the second one

@@ -30,11 +30,8 @@ public class MazeForgeEditor : ModuleRules
 			"AssetRegistry",
 			"PhysicsCore",
 			"Projects",
-
-			// FlushRenderingCommands in MazeLevelExporter: batched export unloads
-			// finished room packages, and pending render commands may still hold
-			// their mesh buffers. Declared in a header, but lives in RenderCore.
-			"RenderCore"
+			"RenderCore",
+			"WorkspaceMenuStructure"
 		});
 	}
 }

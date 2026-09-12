@@ -600,6 +600,29 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 
 			if (bIsTransition)
 			{
+				// A transition outside the play band is built, spawns, looks right in the viewport
+				// and can never work: the player only ever exists in the play band, so a Gate
+				// there is a trigger nothing can enter and an Entry there teleports him off the
+				// plane he moves in. From the side the two bands overlap on screen exactly, which
+				// is what makes this cost an afternoon instead of a second.
+				//
+				// Not a refusal — the placement is legal and the band is a deliberate choice
+				// everywhere else. Just impossible to miss.
+				if (Placement.Band != EMazeDepthBand::Play)
+				{
+					UE_LOG(LogMazeForge, Warning,
+						TEXT("Export: %s %d at X %d Z %d is in the %s band, not Play. The player "
+						     "never goes there, so %s. Erase it and place it again with "
+						     "Paint Band = Play."),
+						Type->TransitionRole == EMazeTransitionRole::Gate ? TEXT("gate") : TEXT("entry"),
+						PlacementId, Placement.CellXZ.X, Placement.CellXZ.Y,
+						Placement.Band == EMazeDepthBand::Background
+							? TEXT("Background") : TEXT("Foreground"),
+						Type->TransitionRole == EMazeTransitionRole::Gate
+							? TEXT("he can never walk into it")
+							: TEXT("arriving there puts him off the play plane"));
+				}
+
 				FMazeTransitionPoint Point;
 				Point.Id = PlacementId;
 				Point.Role = Type->TransitionRole;
