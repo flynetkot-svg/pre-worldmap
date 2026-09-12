@@ -11,6 +11,7 @@ class UMazeEditorStyleAsset;
 class UMazeGridAsset;
 class UMazeObjectLibrary;
 class UMazeSpawnAsset;
+class UMazeWorldGraph;
 
 /** What the mouse does in the viewport. */
 UENUM()
@@ -357,6 +358,27 @@ public:
 	UFUNCTION(CallInEditor, Category = "Advanced",
 		meta = (DisplayName = "Detach Rooms From Level", DisplayPriority = "7"))
 	void DetachRoomsFromLevel();
+
+	/**
+	 *  The world graph, read by Attach All Mazes and by nothing else.
+	 *
+	 *  The same asset the character's streaming component points at. It is named here as well
+	 *  because attaching is editor work, done with the map open and the character closed.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Advanced", meta = (DisplayPriority = "8"))
+	TSoftObjectPtr<UMazeWorldGraph> WorldGraph;
+
+	/**
+	 *  Puts every maze the world graph names onto the open map, in one action.
+	 *
+	 *  Nothing is generated, exported or re-baked: this only makes the map agree with the
+	 *  graph. That is the state a fresh clone leaves it in, and a hand detach, and a maze that
+	 *  was built but never attached. The alternative is Apply Changes once per maze — rebuilding
+	 *  every mesh of every maze in order to add lines to a list of levels.
+	 */
+	UFUNCTION(CallInEditor, Category = "Advanced",
+		meta = (DisplayName = "Attach All Mazes In World Graph", DisplayPriority = "9"))
+	void AttachAllMazes();
 
 	DECLARE_MULTICAST_DELEGATE(FOnMazeSettingsChanged);
 	FOnMazeSettingsChanged OnSettingsChanged;

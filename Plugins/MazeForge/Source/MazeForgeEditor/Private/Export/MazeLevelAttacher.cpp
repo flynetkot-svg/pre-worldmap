@@ -2,6 +2,7 @@
 
 #include "Assets/MazeBuildSettings.h"
 #include "Assets/MazeGridAsset.h"
+#include "Assets/MazeWorldGraph.h"
 #include "Assets/MazeWorldManifest.h"
 #include "Editor.h"
 #include "EditorLevelUtils.h"
@@ -33,18 +34,30 @@ namespace
 
 int32 FMazeLevelAttacher::AttachRooms(UMazeGridAsset* Asset)
 {
-	UWorld* World = GetEditorWorld();
-	if (!Asset || !World)
+	if (!Asset)
 	{
-		UE_LOG(LogMazeForge, Warning, TEXT("Attach: no asset or no open level."));
+		UE_LOG(LogMazeForge, Warning, TEXT("Attach: no asset."));
 		return 0;
 	}
 
-	UMazeWorldManifest* Manifest = Asset->Manifest.LoadSynchronous();
+	const UMazeWorldManifest* Manifest = Asset->Manifest.LoadSynchronous();
 	if (!Manifest || Manifest->Rooms.Num() == 0)
 	{
 		UE_LOG(LogMazeForge, Warning,
-			TEXT("Attach: the manifest is empty. Run Export Rooms To Levels first."));
+			TEXT("Attach: the manifest of %s is empty. Run Export Rooms To Levels first."),
+			*GetNameSafe(Asset));
+		return 0;
+	}
+
+	return AttachRooms(Manifest);
+}
+
+int32 FMazeLevelAttacher::AttachRooms(const UMazeWorldManifest* Manifest)
+{
+	UWorld* World = GetEditorWorld();
+	if (!Manifest || !World)
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Attach: no manifest or no open level."));
 		return 0;
 	}
 
@@ -87,6 +100,54 @@ int32 FMazeLevelAttacher::AttachRooms(UMazeGridAsset* Asset)
 	UE_LOG(LogMazeForge, Log,
 		TEXT("Attach rooms: %d added, %d already present. Save the persistent level."),
 		Added, Skipped);
+
+	return Added;
+}
+
+int32 FMazeLevelAttacher::AttachWorld(const UMazeWorldGraph* Graph)
+{
+	if (!Graph)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Attach world: no world graph. Pick one in the World Graph field."));
+		return 0;
+	}
+
+	if (Graph->Mazes.Num() == 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Attach world: %s names no mazes. Add them in the world map window."),
+			*Graph->GetName());
+		return 0;
+	}
+
+	int32 Added = 0;
+	int32 Missing = 0;
+
+	for (const TSoftObjectPtr<UMazeWorldManifest>& Entry : Graph->Mazes)
+	{
+		// Loaded one at a time and on purpose. A manifest is the list of a maze's rooms and
+		// nothing else — no cells, no meshes — so ten of them cost almost nothing, which is the
+		// whole reason the world map can draw a world without opening it.
+		const UMazeWorldManifest* Manifest = Entry.LoadSynchronous();
+
+		if (!Manifest)
+		{
+			++Missing;
+			UE_LOG(LogMazeForge, Warning,
+				TEXT("Attach world: %s is in the graph but could not be loaded. It was probably "
+				     "renamed or deleted; remove it from the graph or build it again."),
+				*Entry.ToString());
+			continue;
+		}
+
+		Added += AttachRooms(Manifest);
+	}
+
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Attach world: %d mazes in %s, %d levels added, %d manifests missing. "
+		     "Save the persistent level — Ctrl+Shift+S."),
+		Graph->Mazes.Num(), *Graph->GetName(), Added, Missing);
 
 	return Added;
 }
@@ -167,9 +228,15 @@ int32 FMazeLevelAttacher::DetachRooms(UMazeGridAsset* Asset)
 	// Scoped, so detaching one maze cannot take another maze's levels out of the map with it.
 	// Matching on the path and not on the asset name is deliberate: the compartment is a folder,
 	// there is nothing to parse, and there is no way to get the parsing wrong.
+	//
+	// The trailing slash is the whole of that promise, and it was missing. "/Maps/TEST" is a
+	// prefix of "/Maps/TEST2/L_TEST2_R_000_000", so switching away from TEST quietly took TEST2
+	// off the map as well — and TEST20, and TEST_OLD. The map was then saved in that state, and
+	// the next session opened a world with half its levels gone and nothing said why.
+	// A folder boundary is a slash; comparing without it compares letters, not folders.
 	const FString LevelRoot = MazeExport::ScopedRoot(
 		Settings ? Settings->LevelPackageRoot : TEXT("/Game/MazeForge/Maps"),
-		Asset->GetSafeMazeName());
+		Asset->GetSafeMazeName()) + TEXT("/");
 
 	TArray<ULevelStreaming*> ToRemove;
 	for (ULevelStreaming* Streaming : World->GetStreamingLevels())
