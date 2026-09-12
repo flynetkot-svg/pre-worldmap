@@ -3,6 +3,7 @@
 #include "Assets/MazeGridAsset.h"
 #include "Assets/MazeObjectLibrary.h"
 #include "Assets/MazeSpawnAsset.h"
+#include "Assets/MazeWorldGraph.h"
 #include "Data/MazeGrid.h"
 #include "Generators/MazeGeneratorBase.h"
 #include "Generators/MazeGenerator_Manual.h"
@@ -402,6 +403,28 @@ void UMazeEdModeSettings::AttachRoomsToLevel()
 		RefreshStatus();
 		OnSettingsChanged.Broadcast();
 	}
+}
+
+void UMazeEdModeSettings::AttachAllMazes()
+{
+	UMazeWorldGraph* Graph = WorldGraph.LoadSynchronous();
+	if (!Graph)
+	{
+		// Said out loud rather than silently doing nothing: an empty field and a graph that
+		// lists no mazes look identical from the button, and the fix differs for each.
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Attach world: the World Graph field is empty or points at an asset that is "
+			     "gone (%s). Pick the same graph the character's streaming component uses."),
+			*WorldGraph.ToString());
+		return;
+	}
+
+	FMazeLevelAttacher::AttachWorld(Graph);
+
+	// Same reason as Attach Rooms To Level: nothing in the grid changed, so the preview hears
+	// nothing from the asset, and the preview is exactly what has to change.
+	RefreshStatus();
+	OnSettingsChanged.Broadcast();
 }
 
 void UMazeEdModeSettings::DetachRoomsFromLevel()
