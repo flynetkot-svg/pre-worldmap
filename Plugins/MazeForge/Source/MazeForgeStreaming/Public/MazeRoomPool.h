@@ -92,6 +92,18 @@ private:
 	int32 StreamingMisses = 0;
 
 	/**
+	 *  True until the first update after a Reset has finished.
+	 *
+	 *  A streaming miss means the player reached a room the pool should have had ready and did
+	 *  not — a real fault, worth a warning. On the very first update there was nothing it could
+	 *  have had ready: the pool has only just been told which maze it is looking at, and every
+	 *  room in it is unloaded by definition. Counting that as a miss printed
+	 *  "the player entered unloaded room R_000_000" on every single start of PIE, which taught
+	 *  us to ignore the one line that was supposed to mean something.
+	 */
+	bool bFirstUpdateSinceReset = true;
+
+	/**
 	 *  Finds the streaming entry by the package name from the manifest.
 	 *
 	 *  The comparison is done on the name without the PIE prefix. In a packaged game a

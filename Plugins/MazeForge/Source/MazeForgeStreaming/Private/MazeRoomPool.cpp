@@ -48,6 +48,10 @@ void UMazeRoomPool::Reset()
 	Samples.Reset();
 	WarnedRooms.Reset();
 	StreamingMisses = 0;
+
+	// The next update starts from nothing loaded, so nothing it fails to have ready is its
+	// fault. See the header.
+	bFirstUpdateSinceReset = true;
 }
 
 int32 UMazeRoomPool::GetLoadedCount() const
@@ -316,7 +320,11 @@ void UMazeRoomPool::Update(const FMazeStreamQuery& Query,
 				continue;
 			}
 
-			if (bPinned)
+			// A miss means the pool should have had this room ready and did not. On the first
+			// update after a reset it could not have: it has only just been told which maze it
+			// is looking at. Counting that printed a warning on every start of PIE and on every
+			// door taken, which is how a line that should mean something becomes noise.
+			if (bPinned && !bFirstUpdateSinceReset)
 			{
 				++StreamingMisses;
 				UE_LOG(LogMazeForge, Warning,
@@ -377,6 +385,10 @@ void UMazeRoomPool::Update(const FMazeStreamQuery& Query,
 			}
 		}
 	}
+
+	// Cleared at the end rather than the start, so the whole of this pass counts as the first
+	// one: the rooms it asks for now are the ones the next pass is entitled to expect.
+	bFirstUpdateSinceReset = false;
 }
 
 FString UMazeRoomPool::DumpSamplesToCsv() const
