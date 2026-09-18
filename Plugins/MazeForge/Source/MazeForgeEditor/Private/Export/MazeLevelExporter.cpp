@@ -35,12 +35,15 @@ FString FMazeExportReport::ToString() const
 	return FString::Printf(
 		TEXT("rooms %d, levels %d, meshes %d (of them reused %d), ")
 		TEXT("triangles %d, collision boxes %d; ")
-		TEXT("objects %d (snapped %d, re-anchored %d, skipped %d, unknown type %d); ")
-		TEXT("generated actors replaced %d, user actors preserved %d; ")
+		TEXT("objects %d (snapped %d, re-anchored %d, skipped %d, unknown type %d, ")
+		TEXT("facing mode without a wall %d); ")
+		TEXT("generated actors replaced %d (hand resizing lost %d), user actors preserved %d; ")
 		TEXT("save failures %d; packages unloaded %d; in %.2f s"),
 		Rooms, Levels, Meshes, ReusedMeshes, Triangles, CollisionBoxes,
 		Objects, SnappedObjects, ReanchoredObjects, SkippedObjects, OrphanObjects,
-		ReplacedActors, PreservedActors, FailedPackages, FlushedPackages, Seconds);
+		FacingModeIgnored,
+		ReplacedActors, HandResizedActors, PreservedActors,
+		FailedPackages, FlushedPackages, Seconds);
 }
 
 bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& OutReport)
@@ -374,6 +377,22 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 		// writes the file.
 		RoomWorld->SetFlags(RF_Public | RF_Standalone);
 
+		// Nothing here touches RoomWorld->WorldType, and that is deliberate.
+		//
+		// "UWorld::DestroyActor: World has no context!" on every re-export looks like a world
+		// whose type is wrong, and it is not. UWorld::PostLoad already gives a world read off
+		// disk EWorldType::Inactive; a room level that is currently ATTACHED to the editor world
+		// is loaded through level streaming instead and gets the owning world's type, Editor. It
+		// is a live world, and the warning is the engine noticing that a sublevel has no world
+		// context of its own — which no sublevel ever has.
+		//
+		// Setting it to Inactive silences the line and tells the engine that a world the editor
+		// is holding open is a dormant asset: component registration stops broadcasting and
+		// BeginDestroy starts calling CleanupWorld on it. That is how one line of tidying up the
+		// log destroyed the maze and built nothing in its place.
+		//
+		// The noise is the engine's, on a false positive, and it stays.
+
 		// The rule for a safe re-export: we only remove our own actors, the ones marked with the
 		// tag. Everything the designer put into the room survives a rebuild of the maze.
 		TArray<AActor*> ToRemove;
@@ -403,6 +422,30 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 
 		for (AActor* Doomed : ToRemove)
 		{
+			// The one thing worth saying goodbye to out loud. The size of a spawned object comes
+			// from its type and from nowhere else, so a size that differs from the type's was
+			// typed into the level by hand — and this destroy is about to throw it away without
+			// being asked.
+			if (const UMazeObjectIdComponent* Id =
+					Doomed->FindComponentByClass<UMazeObjectIdComponent>())
+			{
+				const FMazeObjectType* WasType = Library ? Library->FindType(Id->TypeId) : nullptr;
+				const FVector FromType = WasType ? WasType->Scale : FVector::OneVector;
+				const FVector Scale = Doomed->GetActorScale3D();
+
+				if (!Scale.Equals(FromType, 0.01f))
+				{
+					++OutReport.HandResizedActors;
+
+					UE_LOG(LogMazeForge, Warning,
+						TEXT("Export: '%s' in room %s had been resized by hand to "
+						     "%.2f x %.2f x %.2f. The rebuild puts it back to the %.2f x %.2f "
+						     "x %.2f its type asks for — set the size on the type to keep it."),
+						*Doomed->GetActorNameOrLabel(), *Room.RoomId.ToString(),
+						Scale.X, Scale.Y, Scale.Z, FromType.X, FromType.Y, FromType.Z);
+				}
+			}
+
 			RoomWorld->EditorDestroyActor(Doomed, false);
 			++OutReport.ReplacedActors;
 		}
@@ -539,6 +582,23 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 					*Type->TypeId.ToString(), Placement.CellXZ.X, Placement.CellXZ.Y);
 			}
 
+			// "Away from wall" with no wall to be away from. The object is spawned and keeps the
+			// angle set on the type, which is exactly what Fixed would have given it — so the
+			// mode a designer deliberately chose did nothing, and silence here is what leaves him
+			// turning the same torch round and round wondering why it will not listen.
+			if (Type->FacingMode == EMazeFacingMode::AwayFromWall
+				&& PlacedAnchor != EMazeAnchorKind::Wall)
+			{
+				++OutReport.FacingModeIgnored;
+
+				UE_LOG(LogMazeForge, Warning,
+					TEXT("Export: '%s' at X %d Z %d asks to face away from a wall, but its anchor "
+					     "is %s. It was given the fixed angle from the type."),
+					*Type->TypeId.ToString(), Placement.CellXZ.X, Placement.CellXZ.Y,
+					*StaticEnum<EMazeAnchorKind>()->GetNameStringByValue(
+						static_cast<int64>(PlacedAnchor)));
+			}
+
 			// A re-anchored object keeps neither its rotation nor the reason for it: the stored
 			// angle was resolved against the anchor it has just lost.
 			const FRotator Rotation = bReanchored
@@ -555,9 +615,11 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 
 			const FVector Location = MazePlacement::WorldLocation(Grid, *Type, Resolved);
 
+			// Scale goes on at spawn, before anything measures the actor: the snap below reads
+			// its bounds, and the bounds of a crate at twice the size are twice the size.
 			AActor* Object = ObjectClass
-				? RoomWorld->SpawnActor<AActor>(ObjectClass, FTransform(Rotation, Location),
-					SpawnParams)
+				? RoomWorld->SpawnActor<AActor>(ObjectClass,
+					FTransform(Rotation, Location, Type->Scale), SpawnParams)
 				: nullptr;
 
 			if (!Object && ObjectClass)

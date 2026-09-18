@@ -1140,9 +1140,19 @@ FString UMazeEdMode::ObjectHoverStatus(const UMazeGridAsset& Asset) const
 
 	const FString Reason = MazePlacement::DescribeMisfit(Grid, *Type, CellXZ, SliceY);
 
+	// The rectangle under the cursor is FootprintCells, and FootprintCells is the clear space the
+	// type asks for — not the size of the mesh, which nothing here has measured. They are the same
+	// number often enough that the difference goes unnoticed until a 1x1 chandelier is drawn as one
+	// tidy cell and spawns across half the room. Saying which of the two is on screen costs one
+	// line and saves that afternoon.
+	const FString Footprint = FString::Printf(TEXT("%dx%d cells needed"),
+		FMath::Max(1, Type->FootprintCells.X), FMath::Max(1, Type->FootprintCells.Y));
+
 	return Reason.IsEmpty()
-		? FString::Printf(TEXT("  |  %s fits here"), *Type->TypeId.ToString())
-		: FString::Printf(TEXT("  |  %s WON'T FIT: %s"), *Type->TypeId.ToString(), *Reason);
+		? FString::Printf(TEXT("  |  %s fits here (%s, mesh may be bigger)"),
+			*Type->TypeId.ToString(), *Footprint)
+		: FString::Printf(TEXT("  |  %s WON'T FIT (%s): %s"),
+			*Type->TypeId.ToString(), *Footprint, *Reason);
 }
 
 bool UMazeEdMode::ApplyObjectClick(bool bErase)

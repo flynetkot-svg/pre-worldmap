@@ -42,6 +42,31 @@ struct FMazeExportReport
 
 	/** Placements whose type is missing from the library, or has no actor class set. */
 	int32 OrphanObjects = 0;
+
+	/**
+	 *  Generated objects that had been resized by hand, and whose resizing this export threw
+	 *  away.
+	 *
+	 *  The export owns every actor it tagged: each one is destroyed and made again from the
+	 *  library, which is what lets a maze be rebuilt at all. The cost is that anything done to
+	 *  such an actor in the level is undone by the next Apply Changes, silently — a door whose
+	 *  trigger volume had been stretched to fit came back the size of a crate and stopped
+	 *  catching anybody, and nothing anywhere said why.
+	 *
+	 *  Scale only, because it is the one thing the export never sets on an object and therefore
+	 *  the one thing that can only have come from a hand.
+	 */
+	int32 HandResizedActors = 0;
+
+	/**
+	 *  Objects asking to face away from a wall that are not standing against one.
+	 *
+	 *  Not a failure — they get their fixed angle and are spawned. It is counted because the
+	 *  facing mode then does nothing at all, and a designer who chose it is owed the news that
+	 *  it had no effect rather than being left to wonder why everything points one way.
+	 */
+	int32 FacingModeIgnored = 0;
+
 	int32 ReplacedActors = 0;
 	int32 PreservedActors = 0;
 	int32 FailedPackages = 0;

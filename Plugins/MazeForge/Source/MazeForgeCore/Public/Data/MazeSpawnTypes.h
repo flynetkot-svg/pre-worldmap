@@ -206,6 +206,21 @@ struct MAZEFORGECORE_API FMazeObjectType
 	FVector Offset = FVector::ZeroVector;
 
 	/**
+	 *  The size the actor is spawned at.
+	 *
+	 *  It lives here because the export owns every object actor it makes: each Apply Changes
+	 *  destroys them and builds them again from the type. A size typed into the level therefore
+	 *  survives until the next Apply and no longer — set here, it comes back every time.
+	 *
+	 *  It scales the actor, not the space it claims: FootprintCells is declared, not measured,
+	 *  so an object grown well past its footprint will happily overlap its neighbours. Grow the
+	 *  footprint with it when the object is meant to keep them away.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement",
+		meta = (AllowPreserveRatio))
+	FVector Scale = FVector::OneVector;
+
+	/**
 	 *  Whether placements of this type are transition points, and which end.
 	 *
 	 *  A transition point is published into the maze's manifest under its placement id, and the
