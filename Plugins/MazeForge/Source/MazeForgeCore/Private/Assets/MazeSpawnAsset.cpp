@@ -18,6 +18,35 @@ int32 UMazeSpawnAsset::Add(const FMazePlacement& Placement)
 	return Index;
 }
 
+int32 UMazeSpawnAsset::AddBatch(const TArray<FMazePlacement>& NewPlacements)
+{
+	if (NewPlacements.Num() == 0)
+	{
+		return 0;
+	}
+
+#if WITH_EDITOR
+	// One Modify for the lot. See the header: the alternative is an undo history the designer
+	// has to walk back one crate at a time.
+	Modify();
+#endif
+
+	Placements.Reserve(Placements.Num() + NewPlacements.Num());
+
+	for (const FMazePlacement& Placement : NewPlacements)
+	{
+		const int32 Index = Placements.Add(Placement);
+
+		// Same rule as Add, and it has to be repeated rather than trusted: a caller building
+		// placements by hand can leave anything in this field, and an id that was not handed
+		// out by AssignId would collide with one that was.
+		Placements[Index].Id = 0;
+	}
+
+	NotifySpawnsChanged();
+	return NewPlacements.Num();
+}
+
 void UMazeSpawnAsset::RemoveAt(int32 Index)
 {
 	if (!Placements.IsValidIndex(Index))
@@ -33,6 +62,40 @@ void UMazeSpawnAsset::RemoveAt(int32 Index)
 	// swapping the tail into the hole would quietly reorder what the next click picks up.
 	Placements.RemoveAt(Index);
 	NotifySpawnsChanged();
+}
+
+int32 UMazeSpawnAsset::RemoveGenerated()
+{
+	const int32 Before = Placements.Num();
+	if (Before == 0)
+	{
+		return 0;
+	}
+
+#if WITH_EDITOR
+	Modify();
+#endif
+
+	// RemoveAll and not a reverse loop of RemoveAt: order among the survivors is preserved
+	// either way, and one pass beats N shifts of the tail.
+	const int32 Removed = Placements.RemoveAll([](const FMazePlacement& Placement)
+	{
+		return Placement.bGenerated;
+	});
+
+	if (Removed == 0)
+	{
+		return 0;
+	}
+
+	// NextId is not rolled back, for the same reason ClearAll does not roll it back: a number
+	// that has been handed out may be named by a save on somebody's disk.
+	UE_LOG(LogMazeForge, Log,
+		TEXT("%s: %d generated placements removed, %d placed by hand kept."),
+		*GetName(), Removed, Placements.Num());
+
+	NotifySpawnsChanged();
+	return Removed;
 }
 
 int32 UMazeSpawnAsset::FindAtCell(const UMazeObjectLibrary* InLibrary, const FIntPoint& CellXZ) const

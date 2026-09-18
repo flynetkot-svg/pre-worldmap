@@ -62,18 +62,6 @@ void UMazeRoomSlicerBase::Finalize(const FMazeGrid& Grid, TArray<FMazeRoomDesc>&
 	}
 }
 
-int32 UMazeRoomSlicerBase::FindRoomIndexAtXZ(const TArray<FMazeRoomDesc>& Rooms, int32 X, int32 Z)
-{
-	for (int32 Index = 0; Index < Rooms.Num(); ++Index)
-	{
-		if (Rooms[Index].ContainsXZ(X, Z))
-		{
-			return Index;
-		}
-	}
-	return INDEX_NONE;
-}
-
 void UMazeRoomSlicerBase::BuildPortalGraph(const FMazeGrid& Grid, TArray<FMazeRoomDesc>& InOutRooms)
 {
 	for (FMazeRoomDesc& Room : InOutRooms)
@@ -101,7 +89,7 @@ void UMazeRoomSlicerBase::BuildPortalGraph(const FMazeGrid& Grid, TArray<FMazeRo
 			return;
 		}
 
-		const int32 OtherIndex = FindRoomIndexAtXZ(InOutRooms, NeighbourX, NeighbourZ);
+		const int32 OtherIndex = MazeRooms::IndexAtXZ(InOutRooms, NeighbourX, NeighbourZ);
 		if (OtherIndex == INDEX_NONE || OtherIndex == RoomIndex)
 		{
 			return;

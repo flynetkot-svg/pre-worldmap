@@ -35,11 +35,11 @@ FString FMazeExportReport::ToString() const
 	return FString::Printf(
 		TEXT("rooms %d, levels %d, meshes %d (of them reused %d), ")
 		TEXT("triangles %d, collision boxes %d; ")
-		TEXT("objects %d (re-anchored %d, skipped %d, unknown type %d); ")
+		TEXT("objects %d (snapped %d, re-anchored %d, skipped %d, unknown type %d); ")
 		TEXT("generated actors replaced %d, user actors preserved %d; ")
 		TEXT("save failures %d; packages unloaded %d; in %.2f s"),
 		Rooms, Levels, Meshes, ReusedMeshes, Triangles, CollisionBoxes,
-		Objects, ReanchoredObjects, SkippedObjects, OrphanObjects,
+		Objects, SnappedObjects, ReanchoredObjects, SkippedObjects, OrphanObjects,
 		ReplacedActors, PreservedActors, FailedPackages, FlushedPackages, Seconds);
 }
 
@@ -121,11 +121,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 		{
 			const FIntPoint& Cell = Spawns->Placements[Index].CellXZ;
 
-			const FMazeRoomDesc* Owner = Asset->Rooms.FindByPredicate(
-				[&Cell](const FMazeRoomDesc& Candidate)
-				{
-					return Candidate.ContainsXZ(Cell.X, Cell.Y);
-				});
+			const FMazeRoomDesc* Owner = MazeRooms::FindAtXZ(Asset->Rooms, Cell);
 
 			if (Owner)
 			{
@@ -550,7 +546,14 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 					Grid.NumCells())
 				: Placement.Rotation;
 
-			const FVector Location = MazePlacement::WorldLocation(Grid, *Type, Placement);
+			// The anchor actually in use, which is not always the one stored: a re-anchored
+			// object has just lost the one it was placed on. Both WorldLocation and ContactFace
+			// read the anchor off the placement, so they are handed the current one — before
+			// this, a crate that lost its floor was still positioned as though it had one.
+			FMazePlacement Resolved = Placement;
+			Resolved.Anchor = PlacedAnchor;
+
+			const FVector Location = MazePlacement::WorldLocation(Grid, *Type, Resolved);
 
 			AActor* Object = ObjectClass
 				? RoomWorld->SpawnActor<AActor>(ObjectClass, FTransform(Rotation, Location),
@@ -564,6 +567,24 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 					TEXT("Export: could not spawn '%s' at X %d Z %d."),
 					*Type->TypeId.ToString(), Placement.CellXZ.X, Placement.CellXZ.Y);
 				continue;
+			}
+
+			if (Object && Type->bSnapToAnchorSurface)
+			{
+				// Measured, not assumed. Where a mesh sits relative to its own origin is a fact
+				// about the asset, and the asset lives in the game module; the rules can only
+				// say which surface it should touch. Non-colliding components included, or a
+				// prop built from plain meshes measures as nothing and never moves.
+				const FBox Bounds = Object->GetComponentsBoundingBox(true);
+
+				const FVector Delta = MazePlacement::ContactSnapDelta(
+					Bounds, MazePlacement::ContactFace(Grid, *Type, Resolved), Location);
+
+				if (!Delta.IsNearlyZero())
+				{
+					Object->SetActorLocation(Location + Delta);
+					++OutReport.SnappedObjects;
+				}
 			}
 
 			// The number is handed out here and nowhere earlier, so that having an id keeps

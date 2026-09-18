@@ -6,6 +6,31 @@
 struct FMazeGrid;
 
 /**
+ *  Which side of a placement's box is pressed against the mass holding it up.
+ *
+ *  Named rather than derived from the anchor at each use, because a wall placement does not
+ *  record which wall: "leans on a wall" is what is stored, and left or right is re-derived
+ *  from the grid. Callers want the answer, not the derivation.
+ */
+enum class EMazeContactFace : uint8
+{
+	/** Free-standing. Nothing to press against. */
+	None,
+
+	/** The bottom, against a floor. */
+	MinZ,
+
+	/** The top, against a ceiling. */
+	MaxZ,
+
+	/** The left side, against a wall on the left. */
+	MinX,
+
+	/** The right side, against a wall on the right. */
+	MaxX
+};
+
+/**
  *  Whether an object fits somewhere, and which anchor it fits by.
  *
  *  Its own file for one reason: three different callers ask the same question. The brush asks
@@ -62,6 +87,26 @@ namespace MazePlacement
 	/** World transform of a placement, given its type. */
 	MAZEFORGECORE_API FVector WorldLocation(const FMazeGrid& Grid, const FMazeObjectType& Type,
 	                                        const FMazePlacement& Placement);
+
+	/**
+	 *  Which face of the placement's box touches the mass it is anchored to.
+	 *
+	 *  Public because two callers need the same answer: WorldLocation, to put the origin on
+	 *  that surface, and the export, to press the spawned actor's own edge against it.
+	 */
+	MAZEFORGECORE_API EMazeContactFace ContactFace(const FMazeGrid& Grid,
+	                                               const FMazeObjectType& Type,
+	                                               const FMazePlacement& Placement);
+
+	/**
+	 *  How far to move an actor so that its own edge lands on that surface.
+	 *
+	 *  Pure arithmetic on a measured bounding box, and deliberately takes no actor: the export
+	 *  measures, this decides, the export moves. Zero for a free-standing object, and zero for
+	 *  a mesh whose pivot already sits exactly on that edge.
+	 */
+	MAZEFORGECORE_API FVector ContactSnapDelta(const FBox& ActorBounds, EMazeContactFace Face,
+	                                           const FVector& SurfacePoint);
 
 	/** The depth slice a band is placed in: the middle of that band. */
 	MAZEFORGECORE_API int32 BandSliceY(const FMazeGrid& Grid, EMazeDepthBand Band);

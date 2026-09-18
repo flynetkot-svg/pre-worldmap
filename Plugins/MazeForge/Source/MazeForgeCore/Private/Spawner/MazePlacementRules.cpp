@@ -233,42 +233,83 @@ namespace MazePlacement
 			+ Grid.GetCellBounds(FIntVector(Placement.CellXZ.X + Size.X - 1, SliceY,
 				Placement.CellXZ.Y + Size.Y - 1));
 
-		// The origin goes ON the edge the object is anchored by, not in the middle of the box.
-		// A crate's pivot is at its base, a hanging lamp's at its top, a torch's at its back —
-		// that is the convention props are modelled to, and putting the pivot at the centre of
-		// the cell is what left the first crates floating half a cell above the floor.
-		//
-		// Type.Offset stays the escape hatch for an asset whose pivot is somewhere else.
+		// The origin goes ON the surface the object is anchored by, not in the middle of the box.
+		// Which surface that is, is one question asked in two places — here, and by the export
+		// when it snaps the spawned actor against it — so it is answered once, in ContactFace.
 		FVector Location = Box.GetCenter();
 
-		switch (Placement.Anchor)
+		switch (ContactFace(Grid, Type, Placement))
 		{
-		case EMazeAnchorKind::Floor:
-			Location.Z = Box.Min.Z;
-			break;
+		case EMazeContactFace::MinZ: Location.Z = Box.Min.Z; break;
+		case EMazeContactFace::MaxZ: Location.Z = Box.Max.Z; break;
+		case EMazeContactFace::MinX: Location.X = Box.Min.X; break;
+		case EMazeContactFace::MaxX: Location.X = Box.Max.X; break;
 
-		case EMazeAnchorKind::Ceiling:
-			Location.Z = Box.Max.Z;
-			break;
-
-		case EMazeAnchorKind::Wall:
-		{
-			// Whichever side actually has the mass. Asked again rather than stored: the
-			// placement records that it leans on a wall, never which wall, and re-deriving it
-			// keeps that fact in one place — the same place ResolveRotation asks.
-			const bool bWallOnLeft = Grid.IsColumnSolid(
-				Placement.CellXZ.X - 1, Placement.CellXZ.Y, Placement.CellXZ.Y + Size.Y, SliceY);
-
-			Location.X = bWallOnLeft ? Box.Min.X : Box.Max.X;
-			break;
-		}
-
-		case EMazeAnchorKind::Free:
+		case EMazeContactFace::None:
 		default:
 			// Nothing to touch, so the middle of the space it was given is the honest answer.
 			break;
 		}
 
 		return Location + Type.Offset + Placement.Offset;
+	}
+
+	EMazeContactFace ContactFace(const FMazeGrid& Grid, const FMazeObjectType& Type,
+	                             const FMazePlacement& Placement)
+	{
+		switch (Placement.Anchor)
+		{
+		case EMazeAnchorKind::Floor:
+			return EMazeContactFace::MinZ;
+
+		case EMazeAnchorKind::Ceiling:
+			return EMazeContactFace::MaxZ;
+
+		case EMazeAnchorKind::Wall:
+		{
+			// Whichever side actually has the mass. Asked again rather than stored: the
+			// placement records that it leans on a wall, never which wall, and re-deriving it
+			// keeps that fact in one place — the same place ResolveRotation asks.
+			const FIntPoint Size = SafeFootprint(Type);
+			const int32 SliceY = BandSliceY(Grid, Placement.Band);
+
+			const bool bWallOnLeft = Grid.IsColumnSolid(
+				Placement.CellXZ.X - 1, Placement.CellXZ.Y, Placement.CellXZ.Y + Size.Y, SliceY);
+
+			return bWallOnLeft ? EMazeContactFace::MinX : EMazeContactFace::MaxX;
+		}
+
+		case EMazeAnchorKind::Free:
+		default:
+			return EMazeContactFace::None;
+		}
+	}
+
+	FVector ContactSnapDelta(const FBox& ActorBounds, const EMazeContactFace Face,
+	                         const FVector& SurfacePoint)
+	{
+		if (Face == EMazeContactFace::None || !ActorBounds.IsValid)
+		{
+			return FVector::ZeroVector;
+		}
+
+		// The move that puts the actor's own edge on the surface, whatever its pivot happens to
+		// be. This is the piece the placement rules cannot know on their own: where a mesh sits
+		// relative to its origin is a fact about the asset, and the asset lives in the game
+		// module. Guessing it — "a crate's pivot is at its base, a lamp's at its top" — held for
+		// exactly as long as every prop was modelled to that convention, and then a lamp with a
+		// base pivot grew straight up into the ceiling.
+		FVector Delta = FVector::ZeroVector;
+
+		switch (Face)
+		{
+		case EMazeContactFace::MinZ: Delta.Z = SurfacePoint.Z - ActorBounds.Min.Z; break;
+		case EMazeContactFace::MaxZ: Delta.Z = SurfacePoint.Z - ActorBounds.Max.Z; break;
+		case EMazeContactFace::MinX: Delta.X = SurfacePoint.X - ActorBounds.Min.X; break;
+		case EMazeContactFace::MaxX: Delta.X = SurfacePoint.X - ActorBounds.Max.X; break;
+		default: break;
+		}
+
+		return Delta;
 	}
 }

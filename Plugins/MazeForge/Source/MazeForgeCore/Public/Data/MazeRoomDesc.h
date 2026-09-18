@@ -45,3 +45,27 @@ struct MAZEFORGECORE_API FMazeRoomDesc
 
 	bool IsValid() const { return !RoomId.IsNone() && MaxXZ.X > MinXZ.X && MaxXZ.Y > MinXZ.Y; }
 };
+
+/**
+ *  Which room a cell belongs to.
+ *
+ *  One question, asked from four places — the slicer while it builds the portal graph, the
+ *  exporter while it buckets placements, the mode while it highlights the room under the
+ *  cursor, and now the generator, which asks it of every candidate cell. Until this existed
+ *  each caller wrote the search out again: a protected static in the slicer that nothing
+ *  outside it could reach, and two copies of the same FindByPredicate elsewhere. That is the
+ *  shape of divergence the mesh and level names were pulled into a shared helper to avoid.
+ *
+ *  Linear, and deliberately so. Rooms are a handful per maze — 208 in the largest so far —
+ *  and a rectangle test is two comparisons. An index would be a structure to keep in sync
+ *  with a list that is rebuilt by every re-slice.
+ */
+namespace MazeRooms
+{
+	/** Index into Rooms, or INDEX_NONE when the cell is outside every room. */
+	MAZEFORGECORE_API int32 IndexAtXZ(const TArray<FMazeRoomDesc>& Rooms, int32 X, int32 Z);
+
+	/** The room itself, or null. The pointer dies with the next re-slice; do not keep it. */
+	MAZEFORGECORE_API const FMazeRoomDesc* FindAtXZ(const TArray<FMazeRoomDesc>& Rooms,
+	                                                const FIntPoint& CellXZ);
+}

@@ -176,6 +176,24 @@ struct MAZEFORGECORE_API FMazeObjectType
 		meta = (ClampMin = "1"))
 	FIntPoint FootprintCells = FIntPoint(1, 1);
 
+	/**
+	 *  Push the spawned actor until its own edge rests on the surface it is anchored to.
+	 *
+	 *  On by default, and it replaces a guess. The placement rules put the origin on the
+	 *  contact surface and assumed the mesh was modelled to meet it there — a crate pivoted at
+	 *  its base, a lamp at its top. Every prop modelled the other way went straight into the
+	 *  mass: a lamp with a base pivot grew up into the ceiling, which is exactly what the
+	 *  assumption promised and nothing in the editor showed.
+	 *
+	 *  Measured from the actor's own bounds at export, so it is right for any mesh and any
+	 *  pivot without a number being typed anywhere.
+	 *
+	 *  Turn it off for a prop that is meant to cross the surface — a lamp on a chain, a pipe
+	 *  sunk into a wall — and place it with Offset instead.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
+	bool bSnapToAnchorSurface = true;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	EMazeFacingMode FacingMode = EMazeFacingMode::Fixed;
 
@@ -259,6 +277,18 @@ struct MAZEFORGECORE_API FMazePlacement
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")
 	int32 Id = 0;
+
+	/**
+	 *  Put here by the generator rather than by a hand.
+	 *
+	 *  The one thing that separates the two, and it has to be stored rather than worked out:
+	 *  nothing about a crate's position says who decided to put it there. Regenerating clears
+	 *  the placements that carry this and leaves every other one exactly where it is — which is
+	 *  what makes a transition point, or a crate somebody deliberately put on a ledge, safe to
+	 *  keep while the decor is thrown away and scattered again.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")
+	bool bGenerated = false;
 
 	/** The footprint rectangle in cells, given the type that owns it. Max exclusive. */
 	FIntPoint MaxCellXZ(const FIntPoint& FootprintCells) const
