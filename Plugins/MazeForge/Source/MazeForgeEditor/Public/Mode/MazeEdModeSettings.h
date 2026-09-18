@@ -11,6 +11,7 @@ class UMazeEditorStyleAsset;
 class UMazeGridAsset;
 class UMazeObjectLibrary;
 class UMazeSpawnAsset;
+class UMazeSpawnRulesAsset;
 class UMazeWorldGraph;
 
 /** What the mouse does in the viewport. */
@@ -290,6 +291,33 @@ public:
 		meta = (DisplayName = "Clear All Objects", DisplayPriority = "1"))
 	void ClearAllObjects();
 
+	/**
+	 *  How much of what a generated pass scatters. Read by Generate Objects only.
+	 *
+	 *  Its own asset, shared by every maze: what a crate is belongs to the library, which maze
+	 *  it is in belongs to the grid, and how thickly crates are strewn is a decision about the
+	 *  game that ten mazes should be able to share and change in one place.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Objects", meta = (DisplayPriority = "2"))
+	TSoftObjectPtr<UMazeSpawnRulesAsset> SpawnRules;
+
+	/**
+	 *  Furnishes every room of the target from the rules above.
+	 *
+	 *  Replaces what a previous run of this button placed and touches nothing else. Objects put
+	 *  down by hand — transition points first among them — are kept exactly where they are and
+	 *  treated as ground that is already taken, so running this twice is as safe as running it
+	 *  once, and a gate can never be scattered away.
+	 */
+	UFUNCTION(CallInEditor, Category = "Objects",
+		meta = (DisplayName = "Generate Objects", DisplayPriority = "3"))
+	void GenerateObjects();
+
+	/** Removes what Generate Objects placed, leaving everything put down by hand. */
+	UFUNCTION(CallInEditor, Category = "Objects",
+		meta = (DisplayName = "Clear Generated Objects", DisplayPriority = "4"))
+	void ClearGeneratedObjects();
+
 	/** The target's spawn asset, or null. */
 	UMazeSpawnAsset* GetSpawnAsset() const;
 
@@ -321,15 +349,43 @@ public:
 		meta = (DisplayName = "Clear All Changes", DisplayPriority = "2"))
 	void ClearMaze();
 
+	// --------------------------------------------------------------------------- the world
+	//
+	// Everything here is about the game as a whole rather than the maze on the screen: which
+	// mazes exist, how they join up, and whether the open map knows about all of them. It was
+	// scattered between Advanced and nowhere, which put the one button a designer needs after
+	// cloning the repository at the bottom of a section folded away by default.
+
+	/**
+	 *  The world graph, read by Attach All Mazes and by nothing else here.
+	 *
+	 *  The same asset the character's streaming component points at. It is named here as well
+	 *  because attaching is editor work, done with the map open and the character closed.
+	 */
+	UPROPERTY(EditAnywhere, Category = "World", meta = (DisplayPriority = "0"))
+	TSoftObjectPtr<UMazeWorldGraph> WorldGraph;
+
 	/**
 	 *  Opens the world map — how this game's mazes join up.
 	 *
 	 *  Here rather than only under Window because it belongs to this job: the transition points
-	 *  are drawn with the brush two groups above, and the links between them are drawn there.
+	 *  are drawn with the brush a few groups above, and the links between them are drawn there.
 	 */
-	UFUNCTION(CallInEditor, Category = "Advanced",
-		meta = (DisplayName = "Open World Map", DisplayPriority = "0"))
+	UFUNCTION(CallInEditor, Category = "World",
+		meta = (DisplayName = "Open World Map", DisplayPriority = "1"))
 	void OpenWorldMap();
+
+	/**
+	 *  Puts every maze the world graph names onto the open map, in one action.
+	 *
+	 *  Nothing is generated, exported or re-baked: this only makes the map agree with the
+	 *  graph. That is the state a fresh clone leaves it in, and a hand detach, and a maze that
+	 *  was built but never attached. The alternative is Apply Changes once per maze —
+	 *  rebuilding every mesh of every maze in order to add lines to a list of levels.
+	 */
+	UFUNCTION(CallInEditor, Category = "World",
+		meta = (DisplayName = "Attach All Mazes In World Graph", DisplayPriority = "2"))
+	void AttachAllMazes();
 
 	UFUNCTION(CallInEditor, Category = "Advanced",
 		meta = (DisplayName = "Build Depth Volume", DisplayPriority = "1"))
@@ -358,27 +414,6 @@ public:
 	UFUNCTION(CallInEditor, Category = "Advanced",
 		meta = (DisplayName = "Detach Rooms From Level", DisplayPriority = "7"))
 	void DetachRoomsFromLevel();
-
-	/**
-	 *  The world graph, read by Attach All Mazes and by nothing else.
-	 *
-	 *  The same asset the character's streaming component points at. It is named here as well
-	 *  because attaching is editor work, done with the map open and the character closed.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Advanced", meta = (DisplayPriority = "8"))
-	TSoftObjectPtr<UMazeWorldGraph> WorldGraph;
-
-	/**
-	 *  Puts every maze the world graph names onto the open map, in one action.
-	 *
-	 *  Nothing is generated, exported or re-baked: this only makes the map agree with the
-	 *  graph. That is the state a fresh clone leaves it in, and a hand detach, and a maze that
-	 *  was built but never attached. The alternative is Apply Changes once per maze — rebuilding
-	 *  every mesh of every maze in order to add lines to a list of levels.
-	 */
-	UFUNCTION(CallInEditor, Category = "Advanced",
-		meta = (DisplayName = "Attach All Mazes In World Graph", DisplayPriority = "9"))
-	void AttachAllMazes();
 
 	DECLARE_MULTICAST_DELEGATE(FOnMazeSettingsChanged);
 	FOnMazeSettingsChanged OnSettingsChanged;

@@ -28,6 +28,15 @@ struct FMazeExportReport
 	 */
 	int32 ReanchoredObjects = 0;
 
+	/**
+	 *  Of those, ones whose measured bounds did not already meet their anchor surface.
+	 *
+	 *  Expected to be most of them, and not a complaint: it is the number of props whose pivot
+	 *  is somewhere other than the face they hang by. A sudden zero, on the other hand, means
+	 *  the measuring found nothing — worth a look before wondering why lamps are in ceilings.
+	 */
+	int32 SnappedObjects = 0;
+
 	/** Placements that no longer fit anywhere and were NOT spawned. */
 	int32 SkippedObjects = 0;
 

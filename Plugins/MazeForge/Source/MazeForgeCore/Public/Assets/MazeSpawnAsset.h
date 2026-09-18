@@ -47,8 +47,26 @@ public:
 	/** Appends a placement. It gets no id — that happens at the first export. */
 	int32 Add(const FMazePlacement& Placement);
 
+	/**
+	 *  Appends many at once, under one transaction. Returns how many were added.
+	 *
+	 *  The brush adds one placement per click, so Add opening its own transaction costs
+	 *  nothing there. The generator adds hundreds in a single action, and hundreds of
+	 *  transactions is an undo history the designer has to press Ctrl+Z through one crate at a
+	 *  time — for something they think of as one button.
+	 */
+	int32 AddBatch(const TArray<FMazePlacement>& NewPlacements);
+
 	/** Removes the placement at this index. Ids of the rest are untouched. */
 	void RemoveAt(int32 Index);
+
+	/**
+	 *  Drops every placement the generator made, and only those.
+	 *
+	 *  What makes regenerating safe: hand-made placements — transition points above all — are
+	 *  never touched, whatever the rules say or how often they are run.
+	 */
+	int32 RemoveGenerated();
 
 	/**
 	 *  The topmost placement whose footprint covers this cell, or INDEX_NONE.

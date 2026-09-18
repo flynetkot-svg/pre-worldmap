@@ -35,6 +35,31 @@ struct MAZEFORGECORE_API FMazeWorldLink
 };
 
 /**
+ *  Where one maze has been dragged to on the world map.
+ *
+ *  Kept in a list of its own rather than added to the Mazes array, and that is about the graphs
+ *  that already exist: changing the type of an array a designer has filled in loses what is in
+ *  it on the next load. A maze with no entry here is laid out automatically, which is also what
+ *  every maze does until somebody drags it.
+ *
+ *  Canvas coordinates, not world ones. The map is a diagram of how the game is wired, not a
+ *  plan of where its mazes sit in space — two mazes can and do occupy the same world coordinates
+ *  while only one of them is loaded.
+ */
+USTRUCT(BlueprintType)
+struct MAZEFORGECORE_API FMazeWorldLayoutEntry
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
+	TSoftObjectPtr<UMazeWorldManifest> Maze;
+
+	/** Top-left of the maze's schematic, in the map's own coordinates. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
+	FVector2D Position = FVector2D::ZeroVector;
+};
+
+/**
  *  How the mazes of one game join up.
  *
  *  The thing this asset exists to prevent: a door that knows its own destination. Bake the
@@ -70,11 +95,31 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
 	TArray<FMazeWorldLink> Links;
 
+	/**
+	 *  Where mazes have been dragged to. Sparse: only the ones that were moved.
+	 *
+	 *  Editor furniture, and it changes nothing about how the game runs — a world with every
+	 *  maze piled in one corner plays exactly like a tidy one. It lives on the asset because
+	 *  the arrangement is somebody's understanding of their own game, and losing it when the
+	 *  window closes would make arranging it pointless.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "World")
+	TArray<FMazeWorldLayoutEntry> Layout;
+
 	/** Where the link starting at this gate leads, or null. */
 	const FMazeWorldLink* FindLinkFrom(const UMazeWorldManifest* FromMaze, int32 FromId) const;
 
 	/** Whether this maze is on the map at all. */
 	bool HasMaze(const UMazeWorldManifest* Manifest) const;
+
+	/** Where this maze was dragged to, or null if it has never been moved. */
+	const FVector2D* FindLayout(const UMazeWorldManifest* Manifest) const;
+
+	/** Records a drag. Adds an entry if there was none. Does not mark the package dirty. */
+	void SetLayout(const UMazeWorldManifest* Manifest, const FVector2D& Position);
+
+	/** Forgets every hand placement, so the next draw lays everything out again. */
+	void ClearLayout();
 
 	/** The editor and the world map listen: the graph changed, redraw. */
 	DECLARE_MULTICAST_DELEGATE(FOnMazeWorldGraphChanged);

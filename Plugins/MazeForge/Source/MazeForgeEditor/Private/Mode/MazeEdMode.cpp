@@ -488,11 +488,9 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 		FName HoveredRoomId;
 		if (bHasHover)
 		{
-			if (const FMazeRoomDesc* Room = Asset->Rooms.FindByPredicate(
-				[this](const FMazeRoomDesc& Candidate)
-				{
-					return Candidate.ContainsXZ(HoveredCell.X, HoveredCell.Z);
-				}))
+			// HoveredCell is a grid cell, so its room coordinates are X and Z — not X and Y.
+			if (const FMazeRoomDesc* Room =
+				MazeRooms::FindAtXZ(Asset->Rooms, FIntPoint(HoveredCell.X, HoveredCell.Z)))
 			{
 				HoveredRoomId = Room->RoomId;
 			}

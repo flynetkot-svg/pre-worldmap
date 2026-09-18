@@ -3,6 +3,7 @@
 #include "Assets/MazeGridAsset.h"
 #include "Assets/MazeObjectLibrary.h"
 #include "Assets/MazeSpawnAsset.h"
+#include "Assets/MazeSpawnRulesAsset.h"
 #include "Assets/MazeWorldGraph.h"
 #include "Data/MazeGrid.h"
 #include "Generators/MazeGeneratorBase.h"
@@ -13,7 +14,11 @@
 #include "Framework/Docking/TabManager.h"
 #include "MazeForgeCore.h"
 #include "Render/MazeEditorStyleAsset.h"
+#include "ScopedTransaction.h"
+#include "Spawner/MazeObjectGenerator.h"
 #include "World/SMazeWorldMap.h"
+
+#define LOCTEXT_NAMESPACE "MazeForgeEditor"
 
 namespace
 {
@@ -119,6 +124,87 @@ void UMazeEdModeSettings::ClearAllObjects()
 	}
 
 	Spawns->ClearAll();
+	RefreshStatus();
+	OnSettingsChanged.Broadcast();
+}
+
+void UMazeEdModeSettings::GenerateObjects()
+{
+	UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Generate objects"));
+	if (!Asset)
+	{
+		return;
+	}
+
+	UMazeSpawnAsset* Spawns = GetSpawnAsset();
+	if (!Spawns)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Generate objects: %s has no Spawns asset set. That is where placements live."),
+			*Asset->GetName());
+		return;
+	}
+
+	UMazeSpawnRulesAsset* RulesAsset = SpawnRules.LoadSynchronous();
+	if (!RulesAsset)
+	{
+		// Named separately from "no rules in it": an empty field and an empty asset look the
+		// same from the button and are fixed in different places.
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Generate objects: the Spawn Rules field is empty or points at an asset that "
+			     "is gone (%s). Make a Maze Spawn Rules asset and pick it here."),
+			*SpawnRules.ToString());
+		return;
+	}
+
+	FMazeGenerationReport Report;
+
+	{
+		// One transaction over the whole pass — the removal of the last run and the batch that
+		// replaces it — so Ctrl+Z undoes the button, not one crate.
+		const FScopedTransaction Transaction(
+			LOCTEXT("MazeGenerateObjects", "MazeForge: Generate Objects"));
+
+		MazeObjectGenerator::Generate(*Asset, *Spawns, *RulesAsset, Report);
+	}
+
+	RefreshStatus();
+	OnSettingsChanged.Broadcast();
+
+	if (Report.UnknownTypes > 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Generate objects: %d rules name a type the library does not have. "
+			     "Check the Type Ids against %s."),
+			Report.UnknownTypes, *GetNameSafe(GetObjectLibrary()));
+	}
+}
+
+void UMazeEdModeSettings::ClearGeneratedObjects()
+{
+	UMazeSpawnAsset* Spawns = GetSpawnAsset();
+	if (!Spawns)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Clear generated: the target has no Spawns asset set."));
+		return;
+	}
+
+	int32 Removed = 0;
+
+	{
+		const FScopedTransaction Transaction(
+			LOCTEXT("MazeClearGenerated", "MazeForge: Clear Generated Objects"));
+
+		Removed = Spawns->RemoveGenerated();
+	}
+
+	if (Removed == 0)
+	{
+		UE_LOG(LogMazeForge, Log,
+			TEXT("Clear generated: nothing to remove — every placement was made by hand."));
+	}
+
 	RefreshStatus();
 	OnSettingsChanged.Broadcast();
 }
@@ -293,6 +379,11 @@ void UMazeEdModeSettings::ClearMaze()
 
 void UMazeEdModeSettings::OpenWorldMap()
 {
+	// The graph goes across before the tab is invoked, so a window being created for the first
+	// time already knows what to draw. Opening onto an empty picker and asking for the graph a
+	// second time is asking the designer to repeat something they have already told the panel.
+	SMazeWorldMap::SetGraphToShow(WorldGraph.LoadSynchronous());
+
 	FGlobalTabmanager::Get()->TryInvokeTab(SMazeWorldMap::TabId);
 }
 
@@ -437,3 +528,5 @@ void UMazeEdModeSettings::DetachRoomsFromLevel()
 		OnSettingsChanged.Broadcast();
 	}
 }
+
+#undef LOCTEXT_NAMESPACE

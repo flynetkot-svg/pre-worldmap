@@ -46,6 +46,4 @@ protected:
 	 *  with thick walls a room next door through the air can be a hundred metres of travel.
 	 */
 	static void BuildPortalGraph(const FMazeGrid& Grid, TArray<FMazeRoomDesc>& InOutRooms);
-
-	static int32 FindRoomIndexAtXZ(const TArray<FMazeRoomDesc>& Rooms, int32 X, int32 Z);
 };

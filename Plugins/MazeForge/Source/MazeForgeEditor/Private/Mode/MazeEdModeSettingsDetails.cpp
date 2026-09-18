@@ -92,6 +92,7 @@ void FMazeEdModeSettingsDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 	IDetailCategoryBuilder& Snapshot = DetailBuilder.EditCategory("Snapshot");
 	IDetailCategoryBuilder& Build    = DetailBuilder.EditCategory("Build");
 	IDetailCategoryBuilder& Edit     = DetailBuilder.EditCategory("Edit");
+	IDetailCategoryBuilder& World    = DetailBuilder.EditCategory("World");
 	IDetailCategoryBuilder& Advanced = DetailBuilder.EditCategory("Advanced");
 
 	Target.SetSortOrder(0);
@@ -102,7 +103,12 @@ void FMazeEdModeSettingsDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 	Snapshot.SetSortOrder(5);
 	Build.SetSortOrder(6);
 	Edit.SetSortOrder(7);
-	Advanced.SetSortOrder(8);
+
+	// Its own section, above Advanced rather than inside it. The world is the game as a whole
+	// rather than the maze on screen, and the one button somebody needs right after cloning the
+	// repository should not sit at the bottom of a section that is folded away by default.
+	World.SetSortOrder(8);
+	Advanced.SetSortOrder(9);
 
 	// Folded away by default, and that is the whole point of it: the pipeline run one step at a
 	// time is what you reach for when Apply Changes has gone wrong, not what you look at daily.

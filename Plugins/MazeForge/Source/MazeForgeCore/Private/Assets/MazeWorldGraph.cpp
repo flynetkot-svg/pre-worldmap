@@ -37,6 +37,59 @@ bool UMazeWorldGraph::HasMaze(const UMazeWorldManifest* Manifest) const
 	});
 }
 
+const FVector2D* UMazeWorldGraph::FindLayout(const UMazeWorldManifest* Manifest) const
+{
+	if (!Manifest)
+	{
+		return nullptr;
+	}
+
+	// By path, like FindLinkFrom and for the same reason: resolving the soft pointers would
+	// load every manifest in the list to answer a question about one of them.
+	const FSoftObjectPath Path(Manifest);
+
+	const FMazeWorldLayoutEntry* Entry = Layout.FindByPredicate(
+		[&Path](const FMazeWorldLayoutEntry& Candidate)
+		{
+			return Candidate.Maze.ToSoftObjectPath() == Path;
+		});
+
+	return Entry ? &Entry->Position : nullptr;
+}
+
+void UMazeWorldGraph::SetLayout(const UMazeWorldManifest* Manifest, const FVector2D& Position)
+{
+	if (!Manifest)
+	{
+		return;
+	}
+
+	const FSoftObjectPath Path(Manifest);
+
+	FMazeWorldLayoutEntry* Entry = Layout.FindByPredicate(
+		[&Path](const FMazeWorldLayoutEntry& Candidate)
+		{
+			return Candidate.Maze.ToSoftObjectPath() == Path;
+		});
+
+	if (Entry)
+	{
+		Entry->Position = Position;
+		return;
+	}
+
+	FMazeWorldLayoutEntry Added;
+	Added.Maze = const_cast<UMazeWorldManifest*>(Manifest);
+	Added.Position = Position;
+
+	Layout.Add(Added);
+}
+
+void UMazeWorldGraph::ClearLayout()
+{
+	Layout.Reset();
+}
+
 void UMazeWorldGraph::NotifyGraphChanged()
 {
 	OnGraphChanged.Broadcast();
