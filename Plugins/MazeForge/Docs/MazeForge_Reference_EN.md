@@ -288,6 +288,10 @@ The only field is `Types`. Each entry:
 
 > **Careful with the `Free` anchor.** It fits anywhere empty and so effectively turns the check off. It also puts the object in the centre of the cell rather than on an edge, so the same crate ends up half a cell above its floor-standing siblings.
 
+> **The `Floor` anchor and the `Floor` cell type are two different things with one name.** The anchor does not look at the cell type at all: it asks whether there is **mass** under the bottom edge of the footprint, and both `Solid` and `Floor` count as mass. A maze drawn entirely out of `Solid` is perfect ground for floor-anchored objects — the fact that the generator never paints `Floor` cells has no bearing on it.
+
+> **The world border counts as support too.** It is painted into no cell and does not depend on depth — `IsBorderCell` looks only at X and Z — but the export builds it as real mass. So an object may legitimately stand on the bottom border of the map. It cannot be placed inside the border: those cells are impassable, and the brush says so in a line of its own.
+
 ---
 
 ## 5. The spawn asset (Maze Spawn Asset)
@@ -346,6 +350,20 @@ A separate asset from the grid because of lifetime, not tidiness. The maze is ge
 > **Why the filter reads properties instead of tags on rooms.** Rooms are produced by the slicer: change the room size and every room is a new room with a new id. Anything typed onto a room by hand would die at the next re-slicing, and quietly: the tag would simply be gone and the rule would go on matching nothing. The number of exits and whether a transition stands in the room are recomputed from the maze itself and survive re-slicing.
 >
 > It buys the sentences worth saying: enemies only where there is more than one way out, supplies in dead ends, nothing loose in the room you arrive into.
+
+### Band and anchor
+
+A rule's band decides more than depth: the anchor looks for mass **in that same band**.
+
+| Band | Filled by default | Will the `Floor` anchor find support |
+|---|---|---|
+| `Background` | yes | yes |
+| `Play` | yes | yes |
+| `Foreground` | **no** | **no** |
+
+An unfilled band gives `objects 0 placed` and `N rooms short of their minimum` — formally true and completely opaque. The brush names the real reason: set `Paint Band` to the same band and hover over a cell above a floor, and it reads `no mass in the row below`.
+
+Filling is switched on in `Maze Grid → Grid → Depth → Fill`, and needs an `Apply Changes` afterwards: the checkbox does not change an already built grid, the volume is grown by the button.
 
 ### What the generator will not do
 

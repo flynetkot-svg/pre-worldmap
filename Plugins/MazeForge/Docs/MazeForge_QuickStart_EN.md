@@ -123,13 +123,17 @@ Create them bottom-up along the arrows. This document walks you through it.
 
 ## 4. Maze 1: draw it and build it
 
-### 4.1 Build settings
+### 4.1 Two assets you create once
 
-**Content Browser → right-click → Miscellaneous → Data Asset → Maze Build Settings.**
+Both are shared across the project and neither needs filling in — only creating. Do it now so they are already to hand later.
 
-Call it `DA_MazeBuildSettings`. **Change nothing inside.** Every default works: levels land in `/Game/MazeForge/Maps`, meshes in `/Game/MazeForge/Meshes`, and the palette is filled in by the constructor.
+**Build settings.** Content Browser → right-click → **Miscellaneous → Data Asset → Maze Build Settings.** Call it `DA_MazeBuildSettings`.
 
-The one thing worth doing later is putting your own materials into `Palette`. You do not need it for a first maze: with no materials the geometry comes out grey, but correct.
+**Change nothing inside.** Every default works: levels land in `/Game/MazeForge/Maps`, meshes in `/Game/MazeForge/Meshes`, and the palette is filled in by the constructor. The one thing worth doing later is putting your own materials into `Palette`. You do not need it for a first maze: with no materials the geometry comes out grey, but correct.
+
+**Streaming rules.** Content Browser → right-click → **Miscellaneous → Data Asset → Maze Streaming Rules Asset.** Call it `DA_MazeStreamRules`.
+
+Change nothing inside this one either: both the rule set and the budgets are created by the constructor. You will need it in §5, when you hook up the character — but it is easier to make it now, alongside its neighbour.
 
 ### 4.2 The maze itself
 
@@ -219,6 +223,22 @@ And the viewport now shows real geometry instead of preview cubes.
 
 > The log will carry lines reading `LogSpawn: Warning: UWorld::DestroyActor: World has no context!`, one per rebuilt actor. That is a false positive from the engine about attached sublevels. Nothing is broken; ignore them.
 
+### 4.6 Move the Player Start
+
+The project template put `Player Start` wherever suited it — and you have just built over that spot. The character will end up inside the mass and either stick fast or fall through.
+
+In the **Left** or **Right** view, find an empty corridor and put `Player Start` in it. Then select it and check one number in Details:
+
+| Field | Value |
+|---|---|
+| `Transform → Location → Y` | **`0`** |
+
+Zero on Y is the centre of the `Play` band, the only one the player exists in. Looking at the viewport will not tell you: from the side all three bands overlap exactly, and a `Player Start` that has drifted into the background looks like it is standing in the corridor. The number in Details is the only way to see it.
+
+Set X and Z by eye: an empty cell, preferably with a floor under it.
+
+**Check.** Start PIE. The character stands in a corridor and walks, rather than falling or stuck in a wall. If he falls through the floor you put him in `Background` or `Foreground`: there is collision only in `Play`.
+
 ---
 
 ## 5. The character: hooking up streaming
@@ -232,7 +252,7 @@ Rooms are streamed around an **observer** — an actor carrying the component. N
 | Field | Value |
 |---|---|
 | `Manifest` | `/Game/MazeForge/Maps/A/DA_MazeWorldManifest_A` |
-| `Rules` | `DA_MazeStreamRules` — create it: **Miscellaneous → Data Asset → Maze Streaming Rules Asset**, change nothing inside |
+| `Rules` | `DA_MazeStreamRules` — the one you made in §4.1 |
 | `World Graph` | leave empty for now; §11 fills it in |
 
 Leave the other fields alone. Their defaults work: the camera widens to the size of the maze, the screen fades on a transition, and the timings are set.
@@ -285,6 +305,8 @@ Everything else stays at its default.
 
 > **`Footprint Cells` is the space the object needs empty, not the size of the mesh.** A two-by-three wardrobe is `(2, 3)`, and all six cells must be free. The mesh itself can be any size: the plugin does not measure it.
 
+> **Keep `Allowed Anchors` narrow.** Only `Floor` is set here, and not by accident: the `Free` anchor fits anywhere empty, which effectively turns the check off. A type carrying `Free` will bury the whole volume of air under a generation pass — see 8.3.
+
 ### 7.2 The spawn asset
 
 **Miscellaneous → Data Asset → Maze Spawn Asset.** Call it `DA_MazeSpawn_A`. **One per maze.**
@@ -332,6 +354,8 @@ You do not want to place a hundred crates by hand.
 
 **Miscellaneous → Data Asset → Maze Spawn Rules Asset.** Call it `DA_MazeSpawnRules`. One per project: how thickly crates are strewn is a decision about the game, and ten mazes should be able to share one answer.
 
+### 8.1 A first rule
+
 Add a rule to `Rules`:
 
 | Field | Value | Meaning |
@@ -341,7 +365,7 @@ Add a rule to `Rules`:
 | `Min Per Room` | `2` | at least two per room |
 | `Max Per Room` | `5` | at most five |
 | `Min Spacing Cells` | `2` | empty cells between objects |
-| `Band` | `Play` | the band |
+| `Band` | **`Background`** | the band — see 8.2, this is the decision that matters |
 | `Rooms` | leave alone | the room filter; by default, every room |
 
 Leave `Seed` at `1337`. Two runs with the same seed produce the same arrangement — which is what lets you judge a layout, adjust the rules and judge it again.
@@ -357,7 +381,64 @@ LogMazeForge: Generate: objects 34 placed, 0 from the previous run removed; N ro
 
 Then `Apply Changes` to get the objects into the levels.
 
-Worth knowing about the generator:
+### 8.2 Which band to put them in
+
+The most important decision in a rule, and the most common mistake. The band decides not only where the object sits in depth but **whether it can stand there at all**.
+
+| Band | What goes there | Filled by default | Is there a floor |
+|---|---|---|---|
+| `Background` | decor behind the player: barrels, crates, pipes | **yes** | yes, the same floors as in play |
+| `Play` | whatever the player interacts with | yes | yes |
+| `Foreground` | decor in front of the player | **no** | **no** |
+
+**`Background` is the default band for decor.** The player never touches it: there is collision only in `Play`. The generator will scatter barrels there across the same floors as in the play plane, and not one of them will end up in his way.
+
+**`Play` is chosen deliberately.** Anything the generator puts there becomes an obstacle — right for a crate you have to walk around, entirely wrong for background clutter. If the character keeps bumping into barrels after a generation pass, you put decor in `Play`.
+
+**`Foreground` is empty by default, and that is not an oversight.** An empty near plane is the "cutaway" of the original Saboteur and your workspace for hand-placed foreground decor. Since there is no mass there, there are no floors: the `Floor` anchor will find nothing anywhere and the rule returns zero. Two ways out — place only `Free`-anchored objects there and tune them with `Offset`, or switch on `Grid → Depth → Fill → Fill Foreground` and lose the cutaway.
+
+> **The band has to contain mass.** A rule aimed at an unfilled band gives `objects 0 placed` and `N rooms short of their minimum` — true, and no help at all. The brush answers it properly: set `Paint Band` to the same band, pick the type in the palette, hover over a cell above a floor. `no mass in the row below` means there is nothing to stand on in that band.
+
+> **The 2D map does not show depth.** Markers of every band are drawn in the same screen plane: you are looking along the Y axis, so a background barrel lands exactly where a play-band one would. You cannot judge the band from the picture — only from the `Band` field and the status line. A background object that looks sunk into a wall on the map is most likely standing correctly, just behind it.
+
+### 8.3 Setting the type up for a band
+
+The rule itself knows nothing about anchors. Where an object may stand is a property of the **type** in the library, shared by every rule and every maze.
+
+| You want | In the type |
+|---|---|
+| standing on the floor | `Allowed Anchors` = `Floor` only |
+| hanging from the ceiling | `Ceiling` only |
+| on a wall — a torch, a lever | `Wall` only |
+| floating — smoke, motes | `Free` only |
+
+**The mask is "what it may hold on by", not "what to prefer".** The generator walks the cells of the room and takes, for each one, the first anchor that fits, in the order `Floor → Ceiling → Wall → Free`. That order works inside a cell, not across the maze: a cell under a slab fails `Floor`, passes `Ceiling`, and becomes a legitimate candidate. Leave both floor and ceiling in the mask and you get barrels standing and hanging, mixed together.
+
+> **`Free` turns the check off.** It fits anywhere empty, so an object carrying it will fill the whole volume of air. It also puts the object in the centre of the cell rather than on an edge, so such a barrel ends up half a cell above its floor-standing siblings. Keep `Free` for things that are meant to hang.
+
+The other fields of the type worth checking before a first generation pass:
+
+- **`Footprint Cells`** — how many cells must be **clear**. Not the size of the mesh: the plugin does not measure it. A barrel is `(1, 1)`, or `(1, 2)` if it is tall. It is the bottom of that rectangle that looks for a floor.
+- **`Scale`** — the size the actor spawns at. Set it here rather than in the level: the export rebuilds objects on every `Apply Changes`, so a size stretched by hand survives exactly until the next one.
+- **`Snap To Anchor Surface`** — leave it on. It measures the actor and presses its edge against the surface, which is why a lamp pivoted at its base does not grow into the ceiling.
+- **`Category`** — what a category-targeted rule will catch it by.
+
+### 8.4 Several rules for one type
+
+A type can have as many rules as you like, and that is the main way to get an arrangement worth looking at.
+
+```
+Rule 1:  Target=Type, TypeId=Barrel, Band=Background, 4..8 per room
+         background barrels, plenty of them, pure texture
+
+Rule 2:  Target=Type, TypeId=Barrel, Band=Play, 0..1 per room,
+         Rooms → MaxExits=1
+         one barrel as an obstacle, and only in dead ends
+```
+
+One type in the library, two entirely different roles in the game. Densities separate the same way: thick clutter in the background, rare objects in the play plane.
+
+### 8.5 What the generator will not do
 
 - **Running it again is safe.** It removes what the previous run scattered and touches nothing placed by hand. Objects you placed yourself are ground that is already taken.
 - **It never touches transition points**, even when a rule about the `System` category formally covers them. It says so in the log and skips them.
@@ -560,6 +641,12 @@ Look at the `Y=` in the `entry at` line. If it is not zero — strictly, not the
 
 The plugin talks. Nearly every failure names itself in the Output Log. Filter by `MazeForge` and read — the messages are written for a person and usually say what to do.
 
+### The character is stuck or falls through at PIE start
+
+The one case the log says nothing about, because the plugin has nothing to do with it: `Player Start` is inside the geometry, or in the wrong depth band. See §4.6 — `Location → Y` must be `0`.
+
+Standing still and immovable means he is in the mass. Falling through the floor means he is in `Background` or `Foreground`, where there is no collision.
+
 ### Nothing streams in game
 
 | Log line | What to do |
@@ -619,7 +706,8 @@ At least one of them has no `Maze Name`. Give both a name and rebuild both. The 
 - `U_Maze_* → Build → Spawns` — otherwise there is nowhere to put objects;
 - `DA_MazeSpawn_* → Library` — otherwise placements refer to nothing;
 - the character's component → `Manifest`, `Rules`, `World Graph` — **by hand, and never updated for you**;
-- the mode panel → `World → World Graph` — for the `Attach All Mazes` button.
+- the mode panel → `World → World Graph` — for the `Attach All Mazes` button;
+- `Player Start` — move it into an empty cell with `Y = 0` after each maze is first built.
 
 **What `Apply Changes` does:** snapshot → volume → slicing → meshes → levels and manifest → attach to the map. Then `Ctrl+Shift+S`.
 
