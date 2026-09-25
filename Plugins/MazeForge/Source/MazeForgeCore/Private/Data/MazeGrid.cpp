@@ -101,7 +101,16 @@ bool FMazeGrid::IsBoxPassable(const FIntPoint& MinXZ, const FIntPoint& ExtentXZ,
 
 			// Outside the grid is not passable. An object half off the map is not a placement
 			// that "mostly works" — it is one whose other half has nowhere to be.
-			if (!IsInside(Cell) || IsSolid(Cell))
+			//
+			// The world border is not passable either, and it has to be said here explicitly
+			// because no cell was ever painted there — IsSolid knows nothing about it. The
+			// support checks below already count the border as mass, and for a while these two
+			// disagreed: IsRowSolid called the border something to stand on, IsBoxPassable
+			// called it empty space to stand in. Both answers were yes for a cell inside the
+			// border, so the generator laid a tidy row of crates along the bottom of the map,
+			// buried inside a wall that the export builds for real. It looked like the objects
+			// had sunk into the geometry, which is exactly what had happened.
+			if (!IsInside(Cell) || IsSolid(Cell) || IsBorderCell(Cell))
 			{
 				return false;
 			}
