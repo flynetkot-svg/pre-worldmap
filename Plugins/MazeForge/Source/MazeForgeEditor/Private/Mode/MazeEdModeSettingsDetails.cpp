@@ -11,6 +11,7 @@
 #include "Styling/AppStyle.h"
 #include "Widgets/Colors/SColorBlock.h"
 #include "Widgets/Input/SButton.h"
+#include "Widgets/Input/SNumericEntryBox.h"
 #include "Widgets/Layout/SBorder.h"
 #include "Widgets/Layout/SBox.h"
 #include "Widgets/Layout/SWrapBox.h"
@@ -183,6 +184,76 @@ void FMazeEdModeSettingsDetails::BuildGenerateRow(IDetailCategoryBuilder& Catego
 			})
 			[
 				SNew(STextBlock).Text(LOCTEXT("GenerateMaze", "Generate Maze"))
+			]
+		]
+
+		// The seed, right under the button that uses it.
+		//
+		// It lives on the generator inside the maze asset, and that is where it stays — this
+		// is a second way in, not a second copy. A seed is rolled, not configured: the
+		// judgement "this maze is the wrong one" is made while looking at the viewport, and
+		// sending the designer to another asset to act on it is how a layout nobody liked
+		// ends up surviving.
+		+ SVerticalBox::Slot()
+		.AutoHeight()
+		.Padding(0.0f, 6.0f, 0.0f, 0.0f)
+		[
+			SNew(SHorizontalBox)
+
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.VAlign(VAlign_Center)
+			.Padding(2.0f, 0.0f, 6.0f, 0.0f)
+			[
+				SNew(STextBlock).Text(LOCTEXT("SeedLabel", "Seed"))
+			]
+
+			+ SHorizontalBox::Slot()
+			.FillWidth(1.0f)
+			.VAlign(VAlign_Center)
+			[
+				SNew(SNumericEntryBox<int32>)
+				.IsEnabled_Lambda(CanGenerate)
+				.AllowSpin(false)
+				.ToolTipText(LOCTEXT("SeedTip",
+					"The seed of the generator on the target asset — the same field, reached "
+					"from here. The same seed always produces the same maze."))
+				.Value_Lambda([WeakSettings]() -> TOptional<int32>
+				{
+					const UMazeEdModeSettings* Live = WeakSettings.Get();
+					return Live ? TOptional<int32>(Live->GetGeneratorSeed()) : TOptional<int32>();
+				})
+				.OnValueCommitted_Lambda([WeakSettings](int32 NewSeed, ETextCommit::Type)
+				{
+					if (UMazeEdModeSettings* Live = WeakSettings.Get())
+					{
+						Live->SetGeneratorSeed(NewSeed);
+					}
+				})
+			]
+
+			+ SHorizontalBox::Slot()
+			.AutoWidth()
+			.Padding(6.0f, 0.0f, 2.0f, 0.0f)
+			[
+				SNew(SButton)
+				.IsEnabled_Lambda(CanGenerate)
+				.ToolTipText(LOCTEXT("RerollTip",
+					"A new seed and a fresh maze in one press. Whatever is drawn now is "
+					"snapshotted first, so Restore brings it back."))
+				.OnClicked_Lambda([WeakSettings]()
+				{
+					if (UMazeEdModeSettings* Live = WeakSettings.Get())
+					{
+						Live->RerollGeneratorSeed();
+						Live->OnSettingsChanged.Broadcast();
+					}
+
+					return FReply::Handled();
+				})
+				[
+					SNew(STextBlock).Text(LOCTEXT("Reroll", "Reroll"))
+				]
 			]
 		]
 

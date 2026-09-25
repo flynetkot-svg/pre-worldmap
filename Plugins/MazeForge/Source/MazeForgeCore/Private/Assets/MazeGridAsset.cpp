@@ -346,6 +346,16 @@ void UMazeGridAsset::RunGenerator()
 	}
 
 	Generator->Execute(Grid);
+
+	// After the drawing and not inside the generator, and that is not a detail. FillBackWall
+	// paints behind every column that is NOT mass, so it has to look at a finished layout: a
+	// generator painting as it went would put a wall behind cells it was about to carve, and
+	// then carve them, leaving the wall.
+	if (Generator->bFillBackWallAfterGenerate)
+	{
+		FillBackWall(static_cast<uint8>(FMath::Clamp(Generator->BackWallVariant, 0, 255)));
+	}
+
 	NotifyGridChanged();
 }
 
