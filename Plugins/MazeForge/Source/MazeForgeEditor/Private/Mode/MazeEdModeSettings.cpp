@@ -229,6 +229,55 @@ FText UMazeEdModeSettings::GetGeneratorName() const
 	return Generator ? Generator->GetDisplayName() : FText::FromString(TEXT("none"));
 }
 
+int32 UMazeEdModeSettings::GetGeneratorSeed() const
+{
+	const UMazeGridAsset* Asset = TargetAsset.LoadSynchronous();
+	const UMazeGeneratorBase* Generator = Asset ? Asset->Generator : nullptr;
+
+	return Generator ? Generator->Seed : 0;
+}
+
+void UMazeEdModeSettings::SetGeneratorSeed(int32 NewSeed)
+{
+	UMazeGridAsset* Asset = TargetAsset.LoadSynchronous();
+	UMazeGeneratorBase* Generator = Asset ? Asset->Generator : nullptr;
+
+	if (!Generator || Generator->Seed == NewSeed)
+	{
+		return;
+	}
+
+	// The generator is a sub-object of the asset, so it is the ASSET that has to be marked:
+	// mark the generator and the change is in memory, out of the undo buffer, and gone the
+	// next time the asset is loaded from disk — with the maze it produced still sitting there
+	// looking like the seed on screen made it.
+	const FScopedTransaction Transaction(
+		LOCTEXT("MazeSetGeneratorSeed", "MazeForge: Set Generator Seed"));
+
+	Asset->Modify();
+	Generator->Modify();
+	Generator->Seed = NewSeed;
+}
+
+void UMazeEdModeSettings::RerollGeneratorSeed()
+{
+	if (IsGeneratorManual())
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Reroll: the target's generator is the manual one, so there is no seed to "
+			     "roll. Pick a generator on the maze asset first."));
+		return;
+	}
+
+	// From the clock rather than from the previous seed. A seed derived from the last one is
+	// a sequence, and a designer pressing the button twice to get back the maze they liked
+	// gets a third one instead.
+	const int32 NewSeed = FMath::Abs(static_cast<int32>(FDateTime::Now().GetTicks()));
+
+	SetGeneratorSeed(NewSeed);
+	GenerateMaze();
+}
+
 bool UMazeEdModeSettings::HasBuiltMaze() const
 {
 	const UMazeGridAsset* Asset = TargetAsset.LoadSynchronous();

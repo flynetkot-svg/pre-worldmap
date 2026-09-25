@@ -117,6 +117,18 @@ namespace MazePlacement
 						TEXT("X %d Z %d is mass — an object stands in the empty cell NEXT to the "
 						     "floor, not in the floor itself"), X, Z);
 				}
+
+				// Named apart from mass, because nothing was ever painted here and the cell
+				// looks empty by every means a designer has of checking. It is the world
+				// border: the export builds it as real geometry, so an object standing here
+				// is inside a wall that is not in the drawing.
+				if (Grid.IsBorderCell(FIntVector(X, SliceY, Z)))
+				{
+					return FString::Printf(
+						TEXT("X %d Z %d is inside the world border — it is built as mass even "
+						     "though nothing is drawn there. Move inwards, or open that side "
+						     "under Grid -> Borders"), X, Z);
+				}
 			}
 		}
 

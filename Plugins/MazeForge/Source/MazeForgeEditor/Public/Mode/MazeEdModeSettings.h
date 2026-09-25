@@ -268,6 +268,23 @@ public:
 	/** The generator's own display name, for the caption under a disabled Generate. */
 	FText GetGeneratorName() const;
 
+	/**
+	 *  The seed of the target's generator, and a way to change it.
+	 *
+	 *  Surfaced in the mode panel rather than left in the asset because of how it is actually
+	 *  used: a seed is not configured once, it is rolled. Deciding that a maze is the wrong
+	 *  one is a judgement made while looking at the viewport, and having to open a second
+	 *  asset to act on it turns half a second into a detour — which mostly ends with the
+	 *  designer keeping a layout they did not like.
+	 *
+	 *  Zero when there is no target or no generator, and setting it is then ignored.
+	 */
+	int32 GetGeneratorSeed() const;
+	void SetGeneratorSeed(int32 NewSeed);
+
+	/** A new seed and a fresh maze in one press. */
+	void RerollGeneratorSeed();
+
 	/** A maze that has been sliced into rooms exists. The edit cycle needs one. */
 	bool HasBuiltMaze() const;
 
