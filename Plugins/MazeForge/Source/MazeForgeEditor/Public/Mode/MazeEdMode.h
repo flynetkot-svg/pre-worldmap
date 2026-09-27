@@ -28,6 +28,7 @@ struct FMazeGrid;
  *      Ctrl + Shift + drag rectangle erase
  *      PgUp / PgDn         active depth slice
  *      [ / ]               brush size
+ *      C                   new actors go into the room under the cursor
  */
 UCLASS()
 class MAZEFORGEEDITOR_API UMazeEdMode : public UBaseLegacyWidgetEdMode

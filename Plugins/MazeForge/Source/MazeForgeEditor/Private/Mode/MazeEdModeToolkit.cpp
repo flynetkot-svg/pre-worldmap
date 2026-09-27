@@ -52,7 +52,8 @@ void FMazeEdModeToolkit::Init(const TSharedPtr<IToolkitHost>& InitToolkitHost,
 					"Ctrl + Shift + drag — rectangle erase\n"
 					"PgUp / PgDn — active depth slice\n"
 					"[ and ] — brush size\n"
-					"Q — quick view back or front"))
+					"Q — quick view back or front\n"
+					"C — new actors go into the room under the cursor"))
 			]
 		]
 

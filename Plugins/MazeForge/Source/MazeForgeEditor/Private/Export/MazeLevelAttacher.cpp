@@ -4,6 +4,7 @@
 #include "Assets/MazeGridAsset.h"
 #include "Assets/MazeWorldGraph.h"
 #include "Assets/MazeWorldManifest.h"
+#include "Data/MazeRoomDesc.h"
 #include "Editor.h"
 #include "EditorLevelUtils.h"
 #include "Engine/LevelStreamingDynamic.h"
@@ -274,4 +275,118 @@ int32 FMazeLevelAttacher::DetachRooms(UMazeGridAsset* Asset)
 		Removed, FoldersRemoved);
 
 	return Removed;
+}
+
+// ---------------------------------------------------- pointing the editor at a room
+
+FString FMazeLevelAttacher::MakeRoomLevelCurrent(const UMazeGridAsset* Asset,
+                                                 const FIntPoint& CellXZ)
+{
+	if (!Asset)
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Room level: no Target Asset set."));
+		return FString();
+	}
+
+	if (Asset->Rooms.Num() == 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room level: %s has not been sliced into rooms, so there are no room levels "
+			     "to point at. Press Apply Changes."), *Asset->GetName());
+		return FString();
+	}
+
+	const FMazeRoomDesc* Room = MazeRooms::FindAtXZ(Asset->Rooms, CellXZ);
+	if (!Room)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room level: cell X %d Z %d is outside every room of %s."),
+			CellXZ.X, CellXZ.Y, *Asset->GetName());
+		return FString();
+	}
+
+	// Through the manifest and not through the build settings, deliberately. The manifest is
+	// what the last export actually wrote; the settings are what the next one would write.
+	// Between a change of Maze Name and the Apply Changes that acts on it the two disagree,
+	// and only one of them names a level that exists.
+	const UMazeWorldManifest* Manifest = Asset->Manifest.LoadSynchronous();
+	if (!Manifest)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room level: %s has never been built, so its rooms have no levels yet. Press "
+			     "Apply Changes."), *Asset->GetName());
+		return FString();
+	}
+
+	const FMazeRoomEntry* Entry = Manifest->FindRoom(Room->RoomId);
+	if (!Entry)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room level: room %s is in the slicing but not in manifest %s. The maze has "
+			     "been re-sliced since it was last built — press Apply Changes."),
+			*Room->RoomId.ToString(), *Manifest->GetName());
+		return FString();
+	}
+
+	UWorld* World = GetEditorWorld();
+	if (!World)
+	{
+		return FString();
+	}
+
+	const FString PackageName = Entry->Level.GetLongPackageName();
+	ULevelStreaming* Streaming = PackageName.IsEmpty()
+		? nullptr
+		: FindStreamingLevel(World, FName(*PackageName));
+
+	if (!Streaming)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room level: room %s is not attached to this map, so the editor cannot put "
+			     "anything into it. Press Attach Rooms To Level."), *Room->RoomId.ToString());
+		return FString();
+	}
+
+	// Locked levels are left alone rather than forced. A lock is somebody saying "not this
+	// one", and quietly overriding it would make the next surprise theirs, not ours.
+	if (Streaming->bLocked)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room level: the level of room %s is locked in the Levels panel. Unlock it "
+			     "there first."), *Room->RoomId.ToString());
+		return FString();
+	}
+
+	UEditorLevelUtils::MakeLevelCurrent(Streaming);
+
+	const FString LevelName = FPackageName::GetShortName(PackageName);
+
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Room level: new actors now go into %s — room %s. Drag your decor in; the export "
+		     "leaves anything it did not create alone."),
+		*LevelName, *Room->RoomId.ToString());
+
+	return LevelName;
+}
+
+FString FMazeLevelAttacher::GetCurrentLevelName()
+{
+	const UWorld* World = GetEditorWorld();
+	const ULevel* Current = World ? World->GetCurrentLevel() : nullptr;
+
+	if (!Current)
+	{
+		return FString();
+	}
+
+	return FPackageName::GetShortName(Current->GetOutermost()->GetName());
+}
+
+bool FMazeLevelAttacher::IsPersistentLevelCurrent()
+{
+	const UWorld* World = GetEditorWorld();
+
+	// No world counts as persistent: the answer feeds a warning, and a warning that goes quiet
+	// when the question cannot be answered is the kind that is missing exactly when it matters.
+	return !World || World->GetCurrentLevel() == World->PersistentLevel;
 }

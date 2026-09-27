@@ -662,6 +662,23 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			Status += TEXT("  |  PEEK");
 		}
 
+		// Which level a dragged-in asset would land in.
+		//
+		// Said always, and said loudly when it is the persistent one. Decor dropped there is
+		// not merely in the wrong place: the persistent level is never unloaded, so it is
+		// permanently resident memory and permanent draw calls, everywhere on the map. And
+		// there is nothing to notice — the prop looks right, sits right, and behaves right
+		// until somebody profiles the level months later and finds four hundred rocks that
+		// were never supposed to be loaded at once.
+		if (Asset->Rooms.Num() > 0)
+		{
+			Status += FMazeLevelAttacher::IsPersistentLevelCurrent()
+				? FString(TEXT("  |  DECOR GOES TO THE PERSISTENT LEVEL — hover a room and "
+				               "press C"))
+				: FString::Printf(TEXT("  |  decor -> %s"),
+					*FMazeLevelAttacher::GetCurrentLevelName());
+		}
+
 		if (bHasHover)
 		{
 			Status += FString::Printf(TEXT("  |  cursor  X %d  Z %d"), HoveredCell.X, HoveredCell.Z);
@@ -931,6 +948,20 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 		{
 			const int32 Delta = (Key == EKeys::RightBracket) ? 1 : -1;
 			Settings->BrushSize = FMath::Clamp(Settings->BrushSize + Delta, 1, 16);
+			return true;
+		}
+
+		// Point the editor at the room under the cursor, so hand-placed decor lands in that
+		// room's level and streams with it.
+		//
+		// Handled only when there is a cursor and a target, and the key is passed on
+		// otherwise: a mode that swallows a key it did nothing with is a mode that breaks
+		// whatever the editor had bound to it, silently and only for the people who used it.
+		if (Key == EKeys::C && !bCtrl && !bAlt && !bShift && bHasHover && GetTargetAsset())
+		{
+			FMazeLevelAttacher::MakeRoomLevelCurrent(GetTargetAsset(),
+				FIntPoint(HoveredCell.X, HoveredCell.Z));
+
 			return true;
 		}
 	}

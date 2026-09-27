@@ -42,6 +42,30 @@ public:
 	/** Removes everything that lives in the maze level folder from the persistent level. */
 	static int32 DetachRooms(UMazeGridAsset* Asset);
 
+	/**
+	 *  Makes the level of the room holding this cell the one new actors are created in.
+	 *
+	 *  The whole of the hand-decoration problem, and it needs no new data. A room IS a level,
+	 *  and which level an actor is saved in is the only binding the streaming reads. A
+	 *  property or an interface saying "I belong to R_003_002" would be a second identity to
+	 *  keep in step with the first, and it would be free to lie: an actor sitting in the
+	 *  persistent level while claiming a room is a statement nothing checks.
+	 *
+	 *  So the answer is to point the editor at the right level before the actor exists — a
+	 *  thing the editor already does. It just takes finding that room among two hundred in the
+	 *  Levels panel, every single time, and getting it wrong is silent.
+	 *
+	 *  Returns the level's name on success and an empty string on every failure, each of which
+	 *  says in the log what to do about it.
+	 */
+	static FString MakeRoomLevelCurrent(const UMazeGridAsset* Asset, const FIntPoint& CellXZ);
+
+	/** The name of the level new actors are being created in. Empty when there is no world. */
+	static FString GetCurrentLevelName();
+
+	/** Whether that level is the persistent one — where decor never streams. */
+	static bool IsPersistentLevelCurrent();
+
 private:
 	/**
 	 *  Deletes the Outliner folders this maze created, once its levels are out of the world.
