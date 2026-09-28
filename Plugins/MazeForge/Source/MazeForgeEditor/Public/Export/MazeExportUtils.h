@@ -6,6 +6,7 @@
 class UMazeBuildSettings;
 class UObject;
 class UPackage;
+class UWorld;
 
 /**
  *  Shared mechanics of the build pipeline: asset names, writing to disk, batched unloading.
@@ -72,4 +73,7 @@ namespace MazeExport
 	 */
 	void FlushBatch(TArray<UPackage*>& InOutPackages, UPackage* KeepPackage,
 	                int32& InOutFlushedCount);
+
+	/** The world the editor is showing, or null outside the editor. */
+	UWorld* EditorWorld();
 }

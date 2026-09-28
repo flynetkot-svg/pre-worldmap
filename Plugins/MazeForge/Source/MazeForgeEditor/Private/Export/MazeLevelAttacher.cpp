@@ -16,11 +16,6 @@
 
 namespace
 {
-	UWorld* GetEditorWorld()
-	{
-		return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
-	}
-
 	ULevelStreaming* FindStreamingLevel(UWorld* World, FName PackageName)
 	{
 		for (ULevelStreaming* Streaming : World->GetStreamingLevels())
@@ -101,7 +96,7 @@ int32 FMazeLevelAttacher::AttachRooms(UMazeGridAsset* Asset)
 
 int32 FMazeLevelAttacher::AttachRooms(const UMazeWorldManifest* Manifest)
 {
-	UWorld* World = GetEditorWorld();
+	UWorld* World = MazeExport::EditorWorld();
 	if (!Manifest || !World)
 	{
 		UE_LOG(LogMazeForge, Warning, TEXT("Attach: no manifest or no open level."));
@@ -264,7 +259,7 @@ int32 FMazeLevelAttacher::RemoveOutlinerFolders(UWorld* World, const UMazeGridAs
 
 int32 FMazeLevelAttacher::DetachRooms(UMazeGridAsset* Asset)
 {
-	UWorld* World = GetEditorWorld();
+	UWorld* World = MazeExport::EditorWorld();
 	if (!Asset || !World)
 	{
 		return 0;
@@ -331,7 +326,7 @@ namespace
 	void GatherRoomStreamingLevels(const UMazeGridAsset* Asset,
 	                               TArray<ULevelStreaming*>& OutLevels)
 	{
-		UWorld* World = GetEditorWorld();
+		UWorld* World = MazeExport::EditorWorld();
 		if (!Asset || !World)
 		{
 			return;
@@ -463,7 +458,7 @@ FString FMazeLevelAttacher::MakeRoomLevelCurrent(const UMazeGridAsset* Asset,
 		return FString();
 	}
 
-	UWorld* World = GetEditorWorld();
+	UWorld* World = MazeExport::EditorWorld();
 	if (!World)
 	{
 		return FString();
@@ -506,7 +501,7 @@ FString FMazeLevelAttacher::MakeRoomLevelCurrent(const UMazeGridAsset* Asset,
 
 FString FMazeLevelAttacher::GetCurrentLevelName()
 {
-	const UWorld* World = GetEditorWorld();
+	const UWorld* World = MazeExport::EditorWorld();
 	const ULevel* Current = World ? World->GetCurrentLevel() : nullptr;
 
 	if (!Current)
@@ -519,7 +514,7 @@ FString FMazeLevelAttacher::GetCurrentLevelName()
 
 bool FMazeLevelAttacher::IsPersistentLevelCurrent()
 {
-	const UWorld* World = GetEditorWorld();
+	const UWorld* World = MazeExport::EditorWorld();
 
 	// No world counts as persistent: the answer feeds a warning, and a warning that goes quiet
 	// when the question cannot be answered is the kind that is missing exactly when it matters.

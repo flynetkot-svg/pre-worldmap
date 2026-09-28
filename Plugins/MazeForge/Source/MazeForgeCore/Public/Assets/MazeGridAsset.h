@@ -174,6 +174,12 @@ public:
 
 	virtual void PostLoad() override;
 
+	/**
+	 *  Writes Grid and Snapshot cells as one packed block each and reads them back.
+	 *  The layout lives in MazeCellPacking.cpp; see FMazeGrid::PackedCells.
+	 */
+	virtual void Serialize(FArchive& Ar) override;
+
 	// --------------------------------------------------------------------- actions
 	//
 	//  There are deliberately no buttons here. The asset is the parameters: depth, bounds,
