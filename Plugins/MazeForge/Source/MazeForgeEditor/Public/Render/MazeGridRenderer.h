@@ -46,6 +46,25 @@ public:
 	                              const FMazeLineStyle& Line);
 
 	/**
+	 *  Diagonal hatching across a cell rectangle. Drawn on top of the frame, not instead of it.
+	 *
+	 *  A frame alone reads as an outline over whatever is behind it, and over a maze it is one
+	 *  more rectangle among the grid overlay, the room bounds and the placement footprints. A
+	 *  hatched area reads as chosen. It matters most exactly where the frame is weakest — a
+	 *  drag big enough to hold scenery, where the four edges are far apart and nothing in the
+	 *  middle says the middle is included.
+	 *
+	 *  Flat, at the near face of the box: the camera looks along -Y, so hatching at the far
+	 *  face would sit behind the geometry it is meant to mark.
+	 */
+	//  SpacingCells sets the density in cells; bMirror flips which diagonal is used, which is
+	//  how "already merged" and "being selected right now" stay apart without a second colour.
+	static void DrawCellHatch(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid,
+	                          const FIntVector& Min, const FIntVector& Max,
+	                          const FMazeLineStyle& Line, float SpacingCells, bool bMirror = false,
+	                          bool bCrossed = false);
+
+	/**
 	 *  The placed objects, as the footprint rectangle of each in its type's colour.
 	 *
 	 *  Rectangles through the PDI rather than instanced cubes like the cell preview: there are
@@ -71,9 +90,13 @@ public:
 	 */
 	//  The room list is passed in rather than read off the asset, because it is not always the
 	//  asset's. Preview Rooms draws a slicing that was computed and never stored.
+	//  BoundsOverride replaces Style.RoomBounds for the un-hovered rooms. The Rooms tool draws
+	//  the same rooms in a heavier line, and passing the line beats adding a mode flag the
+	//  renderer would have to interpret.
 	static void DrawRooms(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid,
 	                      const TArray<FMazeRoomDesc>& Rooms,
 	                      const FIntPoint& MinXZ, const FIntPoint& MaxXZ,
 	                      FName HighlightRoomId, int32 SliceY,
-	                      const UMazeEditorStyleAsset& Style);
+	                      const UMazeEditorStyleAsset& Style,
+	                      const FMazeLineStyle* BoundsOverride = nullptr);
 };

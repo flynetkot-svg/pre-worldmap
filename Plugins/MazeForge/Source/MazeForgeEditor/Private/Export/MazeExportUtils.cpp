@@ -1,5 +1,6 @@
 ﻿#include "Export/MazeExportUtils.h"
 
+#include "Assets/MazeBuildSettings.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "MazeForgeCore.h"
@@ -24,6 +25,44 @@ namespace MazeExport
 	FString ScopedRoot(const FString& Root, const FString& MazeName)
 	{
 		return MazeName.IsEmpty() ? Root : Root / MazeName;
+	}
+
+	FString ManifestAssetName(const UMazeBuildSettings* Settings, const FString& MazeName)
+	{
+		FString Name = Settings ? Settings->ManifestAssetName : FString();
+		Name.TrimStartAndEndInline();
+		if (Name.IsEmpty())
+		{
+			Name = TEXT("DA_MazeWorldManifest");
+		}
+
+		// The manifest is the one asset a maze has exactly one of, so it collides even when the
+		// rooms do not. It lives in the compartment as well, and says which maze it is in its
+		// own name.
+		if (!MazeName.IsEmpty())
+		{
+			Name += TEXT("_") + MazeName;
+		}
+
+		return Name;
+	}
+
+	FString ManifestPackageName(const UMazeBuildSettings* Settings, const FString& MazeName)
+	{
+		// An empty ManifestPackageRoot means "next to the levels": most projects have a single
+		// maze, and a separate folder for one asset only gets in the way.
+		FString Root = Settings ? Settings->ManifestPackageRoot : FString();
+		Root.TrimStartAndEndInline();
+		while (Root.RemoveFromEnd(TEXT("/"))) {}
+
+		if (Root.IsEmpty())
+		{
+			Root = ScopedRoot(
+				Settings ? Settings->LevelPackageRoot : FString(TEXT("/Game/MazeForge/Maps")),
+				MazeName);
+		}
+
+		return Root / ManifestAssetName(Settings, MazeName);
 	}
 
 	FString MeshAssetName(const FString& MazeName, FName RoomId, EMazeDepthBand Band,

@@ -53,7 +53,12 @@ void FMazeEdModeToolkit::Init(const TSharedPtr<IToolkitHost>& InitToolkitHost,
 					"PgUp / PgDn — active depth slice\n"
 					"[ and ] — brush size\n"
 					"Q — quick view back or front\n"
-					"C — new actors go into the room under the cursor"))
+					"C — new actors go into the room under the cursor\n"
+					"\n"
+					"Rooms tool (edits how the map is cut up):\n"
+					"drag — MERGE the rooms under the rectangle into one\n"
+					"Shift + drag — SPLIT the merges it touches\n"
+					"merges show as coloured hatching until you press Apply Changes"))
 			]
 		]
 

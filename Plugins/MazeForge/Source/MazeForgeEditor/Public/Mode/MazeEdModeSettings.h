@@ -21,7 +21,16 @@ enum class EMazeEditTool : uint8
 	/** Paint the mass of the maze: Solid, Floor, BackWall. */
 	Cells   = 0,
 	/** Place objects from the library. */
-	Objects = 1
+	Objects = 1,
+	/**
+	 *  Fuse lattice cells into single rooms.
+	 *
+	 *  Not a brush over the maze but an edit of how it is cut up, which is why it gets a tool
+	 *  of its own rather than a modifier: a stroke here changes no cell and draws nothing, and
+	 *  sharing a button with the paint brush would make "what did that click just do" depend
+	 *  on a checkbox somewhere else.
+	 */
+	Rooms   = 2
 };
 
 /** How a brush stroke is spread through the depth axis Y. */
@@ -366,6 +375,20 @@ public:
 		meta = (DisplayName = "Clear All Changes", DisplayPriority = "2"))
 	void ClearMaze();
 
+	/**
+	 *  Moves room levels and meshes this maze's manifest no longer uses into Deprecated.
+	 *
+	 *  Apply only takes abolished rooms off the map; it leaves their assets where they are,
+	 *  because moving them costs about a second per asset inside the engine's rename — nine
+	 *  minutes on the first big map, which is not a price to pay for seeing a change. This is
+	 *  where that price is paid, once, when the folder is worth tidying. It asks first, with
+	 *  the count.
+	 */
+	UFUNCTION(CallInEditor, Category = "Build",
+		meta = (DisplayName = "Move Stale Rooms To Deprecated",
+			ToolTip = "Move room levels and meshes the last build no longer uses into a Deprecated folder. Nothing is deleted."))
+	void MoveStaleRoomsToDeprecated();
+
 	// --------------------------------------------------------------------------- the world
 	//
 	// Everything here is about the game as a whole rather than the maze on the screen: which
@@ -415,6 +438,32 @@ public:
 	UFUNCTION(CallInEditor, Category = "Advanced",
 		meta = (DisplayName = "Slice Into Rooms", DisplayPriority = "3"))
 	void SliceIntoRooms();
+
+	/**
+	 *  Throws away every merge, leaving the plain lattice. The slicing itself is untouched
+	 *  until the next Apply Changes.
+	 *
+	 *  Its own button because the alternative is Shift-dragging over each merge in turn, and
+	 *  the case that needs it most is the one where the designer has cut a fine lattice into
+	 *  a patchwork and wants to start over — precisely when there are too many to undo by
+	 *  hand.
+	 */
+	UFUNCTION(CallInEditor, Category = "Advanced",
+		meta = (DisplayName = "Clear All Room Merges",
+			ToolTip = "Undo every merge and go back to the plain lattice."))
+	void ClearRoomMerges();
+
+	/**
+	 *  Hides or shows this maze's room levels in the editor.
+	 *
+	 *  The room frames and the merge hatching are lines drawn over whatever is in the
+	 *  viewport, and once the levels are attached that is a solid built maze. Hiding them
+	 *  leaves the drawing and the slicing, which is what this tool is actually editing.
+	 */
+	UFUNCTION(CallInEditor, Category = "Display",
+		meta = (DisplayName = "Show / Hide Room Levels",
+			ToolTip = "Hide the built room levels so only the drawing and the slicing show."))
+	void ToggleRoomLevels();
 
 	UFUNCTION(CallInEditor, Category = "Advanced",
 		meta = (DisplayName = "Build Room Meshes", DisplayPriority = "4"))

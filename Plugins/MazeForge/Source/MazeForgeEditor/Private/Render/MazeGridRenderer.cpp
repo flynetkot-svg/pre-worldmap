@@ -19,6 +19,60 @@ namespace
 			Line.Color, SDPG_Foreground, Line.Thickness);
 	}
 
+	/**
+	 *  Parallel diagonals clipped to an XZ rectangle, at a fixed world Y.
+	 *
+	 *  Spacing is fixed in world units, not a fixed line count. A count that fits the
+	 *  rectangle keeps the picture tidy at every size and is exactly wrong for this job: a
+	 *  merge spanning half the map got the same ten strokes as a two-cell one, which at map
+	 *  scale is a few faint scratches over a room full of geometry. Constant spacing means
+	 *  the texture reads the same everywhere, and a big area simply gets more of it.
+	 *
+	 *  One family of lines and not two. Crossed hatching at this density reads as a solid
+	 *  wash and buries the maze underneath, which defeats the point of marking part of it.
+	 *  Mirror swaps which diagonal is used — the cheapest way to tell two overlaid meanings
+	 *  apart without spending a colour on it.
+	 */
+	void DrawHatchXZ(FPrimitiveDrawInterface* PDI, double X0, double X1, double Z0, double Z1,
+	                 double PlaneY, const FMazeLineStyle& Line, double SpacingUU, bool bMirror,
+	                 int32 MaxLines)
+	{
+		if (X1 <= X0 || Z1 <= Z0 || SpacingUU <= 0.0)
+		{
+			return;
+		}
+
+		// x - z = C for one diagonal, x + z = C for the other. Both sweep C across the range
+		// the rectangle occupies along that axis.
+		const double First = bMirror ? (X0 + Z0) : (X0 - Z1);
+		const double Last = bMirror ? (X1 + Z1) : (X1 - Z0);
+
+		// The cap is protection, not taste: zoomed out over a merge covering a 700-cell map,
+		// honest spacing would ask for thousands of lines every frame.
+		const int32 Count = FMath::Min(
+			FMath::FloorToInt((Last - First) / SpacingUU), FMath::Max(1, MaxLines));
+
+		for (int32 Index = 1; Index <= Count; ++Index)
+		{
+			const double C = First + SpacingUU * static_cast<double>(Index);
+
+			// Clipped against both pairs of edges: a diagonal enters the rectangle only where
+			// its x is inside as well as its z.
+			const double ZEnter = bMirror ? FMath::Max(Z0, C - X1) : FMath::Max(Z0, X0 - C);
+			const double ZExit = bMirror ? FMath::Min(Z1, C - X0) : FMath::Min(Z1, X1 - C);
+			if (ZExit <= ZEnter)
+			{
+				continue;
+			}
+
+			const double XEnter = bMirror ? (C - ZEnter) : (ZEnter + C);
+			const double XExit = bMirror ? (C - ZExit) : (ZExit + C);
+
+			PDI->DrawLine(FVector(XEnter, PlaneY, ZEnter), FVector(XExit, PlaneY, ZExit),
+				Line.Color, SDPG_Foreground, Line.Thickness);
+		}
+	}
+
 	/** A rectangle in the XZ plane at a given world Y. Four lines, no fill. */
 	void DrawRectXZ(FPrimitiveDrawInterface* PDI, double X0, double X1, double Z0, double Z1,
 	                double PlaneY, const FMazeLineStyle& Line)
@@ -141,6 +195,34 @@ void FMazeGridRenderer::DrawCellHighlight(FPrimitiveDrawInterface* PDI, const FM
 	DrawWireBox(PDI, Bounds, Line.Color, SDPG_Foreground, Line.Thickness);
 }
 
+void FMazeGridRenderer::DrawCellHatch(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid,
+                                      const FIntVector& Min, const FIntVector& Max,
+                                      const FMazeLineStyle& Line, float SpacingCells, bool bMirror,
+                                      bool bCrossed)
+{
+	if (!Line.bVisible)
+	{
+		return;
+	}
+
+	const FBox Bounds = Grid.GetCellBounds(Min) + Grid.GetCellBounds(Max);
+
+	// Spacing is given in cells so the density is the designer's, in the units he draws in,
+	// and stays the same when the cell size changes.
+	const double SpacingUU = FMath::Max(0.1, SpacingCells) * Grid.CellSize.X;
+
+	DrawHatchXZ(PDI, Bounds.Min.X, Bounds.Max.X, Bounds.Min.Z, Bounds.Max.Z,
+		Bounds.Max.Y, Line, SpacingUU, bMirror, 512);
+
+	// The second family turns stripes into a wash. Drawn after the first rather than
+	// interleaved, so that turning it off leaves the first one exactly as it was.
+	if (bCrossed)
+	{
+		DrawHatchXZ(PDI, Bounds.Min.X, Bounds.Max.X, Bounds.Min.Z, Bounds.Max.Z,
+			Bounds.Max.Y, Line, SpacingUU, !bMirror, 512);
+	}
+}
+
 void FMazeGridRenderer::DrawDepthBands(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid,
                                        const FIntPoint& MinXZ, const FIntPoint& MaxXZ,
                                        const UMazeEditorStyleAsset& Style)
@@ -221,9 +303,12 @@ void FMazeGridRenderer::DrawRooms(FPrimitiveDrawInterface* PDI, const FMazeGrid&
                                   const TArray<FMazeRoomDesc>& Rooms,
                                   const FIntPoint& MinXZ, const FIntPoint& MaxXZ,
                                   FName HighlightRoomId, int32 SliceY,
-                                  const UMazeEditorStyleAsset& Style)
+                                  const UMazeEditorStyleAsset& Style,
+                                  const FMazeLineStyle* BoundsOverride)
 {
-	if (!Style.RoomBounds.bVisible && !Style.RoomHovered.bVisible)
+	const FMazeLineStyle& Bounds = BoundsOverride ? *BoundsOverride : Style.RoomBounds;
+
+	if (!Bounds.bVisible && !Style.RoomHovered.bVisible)
 	{
 		return;
 	}
@@ -254,7 +339,7 @@ void FMazeGridRenderer::DrawRooms(FPrimitiveDrawInterface* PDI, const FMazeGrid&
 		}
 
 		const bool bHighlight = !HighlightRoomId.IsNone() && Room.RoomId == HighlightRoomId;
-		const FMazeLineStyle& Line = bHighlight ? Style.RoomHovered : Style.RoomBounds;
+		const FMazeLineStyle& Line = bHighlight ? Style.RoomHovered : Bounds;
 		if (!Line.bVisible)
 		{
 			continue;

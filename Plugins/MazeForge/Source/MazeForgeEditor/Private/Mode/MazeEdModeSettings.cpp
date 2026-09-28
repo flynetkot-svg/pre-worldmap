@@ -11,9 +11,12 @@
 #include "Export/MazeBakery.h"
 #include "Export/MazeLevelAttacher.h"
 #include "Export/MazeLevelExporter.h"
+#include "Misc/MessageDialog.h"
+#include "Export/MazeRoomRetirement.h"
 #include "Framework/Docking/TabManager.h"
 #include "MazeForgeCore.h"
 #include "Render/MazeEditorStyleAsset.h"
+#include "Slicers/MazeSlicer_UniformGrid.h"
 #include "ScopedTransaction.h"
 #include "Spawner/MazeObjectGenerator.h"
 #include "World/SMazeWorldMap.h"
@@ -499,6 +502,120 @@ void UMazeEdModeSettings::SliceIntoRooms()
 		Asset->SliceIntoRooms();
 		RefreshStatus();
 	}
+}
+
+void UMazeEdModeSettings::ClearRoomMerges()
+{
+	UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Room merges"));
+	if (!Asset)
+	{
+		return;
+	}
+
+	UMazeSlicer_UniformGrid* Lattice = Cast<UMazeSlicer_UniformGrid>(Asset->Slicer);
+	if (!Lattice)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room merges: merging is a Uniform Grid feature, and this asset slices with "
+			     "something else. There is nothing to clear."));
+		return;
+	}
+
+	if (Lattice->Merges.Num() == 0)
+	{
+		UE_LOG(LogMazeForge, Log, TEXT("Room merges: there were none."));
+		return;
+	}
+
+	const int32 Removed = Lattice->Merges.Num();
+
+	// Both marked. The slicer is an instanced subobject, and undoing a change to it without
+	// the owner having been marked leaves the asset believing it was never touched.
+	const FScopedTransaction Transaction(
+		LOCTEXT("MazeClearMerges", "MazeForge: Clear All Room Merges"));
+	Asset->Modify();
+	Lattice->Modify();
+
+	Lattice->Merges.Empty();
+
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Room merges: %d cleared — back to the plain lattice. Press Apply Changes to "
+		     "rebuild the levels."), Removed);
+
+	RefreshStatus();
+
+	// The mode recomputes its room preview off this and nothing else. RefreshStatus only
+	// rewrites the panel's own line, so without the broadcast the hatching would sit on
+	// screen describing merges that no longer exist.
+	OnSettingsChanged.Broadcast();
+}
+
+void UMazeEdModeSettings::MoveStaleRoomsToDeprecated()
+{
+	UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Deprecate"));
+	if (!Asset)
+	{
+		return;
+	}
+
+	int32 Levels = 0;
+	int32 Meshes = 0;
+	if (!FMazeRoomRetirement::CountStale(Asset, Levels, Meshes))
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Deprecate: %s has no manifest yet, so there is nothing to compare its folders "
+			     "with. Build it first."), *Asset->GetName());
+		return;
+	}
+
+	if (Levels + Meshes == 0)
+	{
+		UE_LOG(LogMazeForge, Log, TEXT("Deprecate: nothing stale — every room asset in use."));
+		return;
+	}
+
+	// Asked, with the numbers and an honest estimate, because this is the one button in the
+	// panel that can take minutes. The estimate is the last measured rate, not a promise.
+	const FText Question = FText::Format(
+		LOCTEXT("MazeDeprecateAsk",
+			"Move {0} room level(s) and {1} mesh(es) that the last build no longer uses into a "
+			"Deprecated folder?\n\nNothing is deleted. On the first big map this ran at about a "
+			"second per asset, so expect roughly {2} minute(s). It can be cancelled between "
+			"batches."),
+		FText::AsNumber(Levels), FText::AsNumber(Meshes),
+		FText::AsNumber(FMath::Max(1, FMath::DivideAndRoundUp(Levels + Meshes, 60))));
+
+	if (FMessageDialog::Open(EAppMsgType::YesNo, Question) != EAppReturnType::Yes)
+	{
+		return;
+	}
+
+	FMazeRoomRetirement::MoveStaleToDeprecated(Asset);
+
+	RefreshStatus();
+	OnSettingsChanged.Broadcast();
+}
+
+void UMazeEdModeSettings::ToggleRoomLevels()
+{
+	UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Room levels"));
+	if (!Asset)
+	{
+		return;
+	}
+
+	// The direction is read off the levels rather than remembered. A stored flag would be a
+	// second opinion about a state the Levels panel can change without telling anyone, and
+	// the button would then need pressing twice to do anything.
+	const bool bWantVisible = !FMazeLevelAttacher::AreRoomLevelsVisible(Asset);
+
+	FMazeLevelAttacher::SetRoomLevelsVisible(Asset, bWantVisible);
+
+	RefreshStatus();
+
+	// Hiding a level changes which rooms the preview is allowed to draw, and that is decided
+	// during the rebuild this triggers.
+	OnSettingsChanged.Broadcast();
 }
 
 // ---------------------------------------------------------------------- 4. meshes

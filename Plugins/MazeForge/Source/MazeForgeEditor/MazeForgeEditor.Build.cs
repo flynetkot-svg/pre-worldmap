@@ -28,6 +28,7 @@ public class MazeForgeEditor : ModuleRules
 			"MeshDescription",
 			"StaticMeshDescription",
 			"AssetRegistry",
+			"AssetTools",
 			"PhysicsCore",
 			"Projects",
 			"RenderCore",

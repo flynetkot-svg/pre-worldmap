@@ -74,6 +74,15 @@ struct FMazeExportReport
 	/** How many packages were unloaded from memory over the course of the export. */
 	int32 FlushedPackages = 0;
 
+	/**
+	 *  Rooms the last build produced that this slicing does not.
+	 *
+	 *  Merging rooms, or changing Room Size, abolishes rooms rather than editing them. Their
+	 *  levels are taken off the map here; their assets stay put until Move Stale Rooms To
+	 *  Deprecated is pressed. See FMazeRoomRetirement for why that is not done here.
+	 */
+	int32 RetiredRooms = 0;
+
 	double Seconds = 0.0;
 
 	FString ToString() const;

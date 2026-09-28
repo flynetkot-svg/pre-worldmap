@@ -12,6 +12,7 @@
 #include "EditorActorFolders.h"
 #include "Export/MazeExportUtils.h"
 #include "MazeForgeCore.h"
+#include "Misc/PackageName.h"
 
 namespace
 {
@@ -41,12 +42,57 @@ int32 FMazeLevelAttacher::AttachRooms(UMazeGridAsset* Asset)
 		return 0;
 	}
 
-	const UMazeWorldManifest* Manifest = Asset->Manifest.LoadSynchronous();
-	if (!Manifest || Manifest->Rooms.Num() == 0)
+	UMazeWorldManifest* Manifest = Asset->Manifest.LoadSynchronous();
+
+	// No pointer is not the same as no manifest. The pointer is written onto the grid asset by
+	// the export and survives only if the grid asset is saved afterwards; an editor that dies
+	// in between — which is exactly what a big first build did — leaves 124 built levels and
+	// a complete manifest on disk, and a grid asset that no longer knows where they are. So
+	// the manifest is looked for where the export puts it, by the same rule, before giving up.
+	if (!Manifest)
+	{
+		const UMazeBuildSettings* Settings = Asset->BuildSettings.LoadSynchronous();
+		const FString MazeName = Asset->GetSafeMazeName();
+		const FString PackageName = MazeExport::ManifestPackageName(Settings, MazeName);
+		const FString ObjectPath = FString::Printf(TEXT("%s.%s"),
+			*PackageName, *MazeExport::ManifestAssetName(Settings, MazeName));
+
+		if (FPackageName::DoesPackageExist(PackageName))
+		{
+			Manifest = LoadObject<UMazeWorldManifest>(nullptr, *ObjectPath);
+		}
+
+		if (Manifest)
+		{
+			// Put the link back, so the next thing that asks does not have to search. Marked
+			// dirty rather than saved: saving somebody's asset behind their back is not this
+			// function's call, and Ctrl+Shift+S is one keystroke away.
+			Asset->Modify();
+			Asset->Manifest = Manifest;
+
+			UE_LOG(LogMazeForge, Warning,
+				TEXT("Attach: %s had lost its link to its manifest — it was not saved after the "
+				     "last build. Found %s where the build puts it and linked it again. Save %s "
+				     "to keep the link."),
+				*Asset->GetName(), *PackageName, *Asset->GetName());
+		}
+	}
+
+	// Two different messages for two different states. "Empty" used to cover both, and it was
+	// wrong for the one that actually happened: the manifest was there and full.
+	if (!Manifest)
 	{
 		UE_LOG(LogMazeForge, Warning,
-			TEXT("Attach: the manifest of %s is empty. Run Export Rooms To Levels first."),
-			*GetNameSafe(Asset));
+			TEXT("Attach: %s has no manifest — it has never been built, or its manifest was "
+			     "moved. Press Apply Changes."), *GetNameSafe(Asset));
+		return 0;
+	}
+
+	if (Manifest->Rooms.Num() == 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Attach: manifest %s lists no rooms. Press Apply Changes."),
+			*Manifest->GetName());
 		return 0;
 	}
 
@@ -278,6 +324,95 @@ int32 FMazeLevelAttacher::DetachRooms(UMazeGridAsset* Asset)
 }
 
 // ---------------------------------------------------- pointing the editor at a room
+
+namespace
+{
+	/** Every streaming level of this maze that is in the open map, by manifest. */
+	void GatherRoomStreamingLevels(const UMazeGridAsset* Asset,
+	                               TArray<ULevelStreaming*>& OutLevels)
+	{
+		UWorld* World = GetEditorWorld();
+		if (!Asset || !World)
+		{
+			return;
+		}
+
+		const UMazeWorldManifest* Manifest = Asset->Manifest.LoadSynchronous();
+		if (!Manifest)
+		{
+			return;
+		}
+
+		for (const FMazeRoomEntry& Entry : Manifest->Rooms)
+		{
+			const FString PackageName = Entry.Level.GetLongPackageName();
+			if (PackageName.IsEmpty())
+			{
+				continue;
+			}
+
+			if (ULevelStreaming* Streaming = FindStreamingLevel(World, FName(*PackageName)))
+			{
+				OutLevels.Add(Streaming);
+			}
+		}
+	}
+}
+
+bool FMazeLevelAttacher::AreRoomLevelsVisible(const UMazeGridAsset* Asset)
+{
+	TArray<ULevelStreaming*> Levels;
+	GatherRoomStreamingLevels(Asset, Levels);
+
+	for (const ULevelStreaming* Streaming : Levels)
+	{
+		if (Streaming->GetShouldBeVisibleInEditor())
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+int32 FMazeLevelAttacher::SetRoomLevelsVisible(const UMazeGridAsset* Asset, bool bVisible)
+{
+	TArray<ULevelStreaming*> Levels;
+	GatherRoomStreamingLevels(Asset, Levels);
+
+	if (Levels.Num() == 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Room levels: none of this maze's levels are in the open map. Press Attach "
+			     "Rooms To Level, or build it first."));
+		return 0;
+	}
+
+	int32 Changed = 0;
+	for (ULevelStreaming* Streaming : Levels)
+	{
+		if (Streaming->GetShouldBeVisibleInEditor() == bVisible)
+		{
+			continue;
+		}
+
+		// Through EditorLevelUtils and not by setting the flag: this is the call the eye icon
+		// in the Levels panel makes, and it is what rebuilds the render state. Flipping the
+		// property alone leaves the viewport showing a level the world believes is hidden.
+		if (ULevel* Loaded = Streaming->GetLoadedLevel())
+		{
+			UEditorLevelUtils::SetLevelVisibility(Loaded, bVisible, false);
+			++Changed;
+		}
+	}
+
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Room levels: %d of %d now %s. The mode draws the preview for whatever is hidden, "
+		     "so the slicing is visible on the drawing itself."),
+		Changed, Levels.Num(), bVisible ? TEXT("shown") : TEXT("hidden"));
+
+	return Changed;
+}
 
 FString FMazeLevelAttacher::MakeRoomLevelCurrent(const UMazeGridAsset* Asset,
                                                  const FIntPoint& CellXZ)

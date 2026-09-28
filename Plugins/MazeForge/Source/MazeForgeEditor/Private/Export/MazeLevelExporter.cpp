@@ -15,6 +15,7 @@
 #include "Engine/World.h"
 #include "Editor.h"
 #include "Export/MazeExportUtils.h"
+#include "Export/MazeRoomRetirement.h"
 #include "Export/MazeMeshBuilder_Faces.h"
 #include "FileHelpers.h"
 #include "GameFramework/WorldSettings.h"
@@ -32,7 +33,14 @@
 
 FString FMazeExportReport::ToString() const
 {
-	return FString::Printf(
+	// Retirement is mentioned only when it happened. A permanent "retired 0" would train the
+	// eye to skip the one line that says somebody's levels have just moved.
+	const FString Retired = (RetiredRooms > 0)
+		? FString::Printf(TEXT("rooms taken off the map %d (assets left in place — Move Stale "
+		                       "Rooms To Deprecated tidies them); "), RetiredRooms)
+		: FString();
+
+	return Retired + FString::Printf(
 		TEXT("rooms %d, levels %d, meshes %d (of them reused %d), ")
 		TEXT("triangles %d, collision boxes %d; ")
 		TEXT("objects %d (snapped %d, re-anchored %d, skipped %d, unknown type %d, ")
@@ -162,31 +170,10 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 		FreshRooms, Asset->Rooms.Num(), Asset->Rooms.Num() - FreshRooms);
 
 	// The manifest is rebuilt in full: it is derived data, there are no hand edits in it.
-	FString ManifestName = Settings ? Settings->ManifestAssetName : FString();
-	ManifestName.TrimStartAndEndInline();
-	if (ManifestName.IsEmpty())
-	{
-		ManifestName = TEXT("DA_MazeWorldManifest");
-	}
+	// Where it lives is decided in one place, shared with Attach — see ManifestPackageName.
+	const FString ManifestName = MazeExport::ManifestAssetName(Settings, MazeName);
+	const FString ManifestPackageName = MazeExport::ManifestPackageName(Settings, MazeName);
 
-	// The manifest is the one asset a maze has exactly one of, so it collides even when the rooms
-	// do not. It lives in the compartment as well, and says which maze it is in its own name.
-	if (!MazeName.IsEmpty())
-	{
-		ManifestName += TEXT("_") + MazeName;
-	}
-
-	// An empty ManifestPackageRoot means "next to the levels": most projects have a single
-	// maze, and a separate folder for one asset only gets in the way.
-	FString ManifestRoot = Settings ? Settings->ManifestPackageRoot : FString();
-	ManifestRoot.TrimStartAndEndInline();
-	while (ManifestRoot.RemoveFromEnd(TEXT("/"))) {}
-	if (ManifestRoot.IsEmpty())
-	{
-		ManifestRoot = LevelRoot;
-	}
-
-	const FString ManifestPackageName = ManifestRoot / ManifestName;
 	UPackage* ManifestPackage = CreatePackage(*ManifestPackageName);
 	ManifestPackage->FullyLoad();
 
@@ -203,6 +190,12 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 	StagedRooms.Reserve(Asset->Rooms.Num());
 
 	bool bCancelled = false;
+	// Taken before anything is written, because the manifest is about to be replaced whole and
+	// this is the only record of which rooms the last build actually produced. Without it,
+	// "which rooms has this re-slicing abolished" has no answer at all — which is why their
+	// levels used to stay in the map for ever.
+	const TArray<FName> PreviousRoomIds = FMazeRoomRetirement::SnapshotRoomIds(Manifest);
+
 	Manifest->WorldBounds = Grid.GetWorldBounds();
 	Manifest->PlayPlaneY = static_cast<float>(Grid.GetPlayPlaneY());
 
@@ -787,6 +780,15 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 
 	Manifest->Rooms = MoveTemp(StagedRooms);
 	Manifest->Transitions = MoveTemp(StagedTransitions);
+
+	// After the manifest is right and before anything is reported. The retirement reads the
+	// new slicing off the asset and the old one off the snapshot, so it has to sit between
+	// the two — and it must not run at all if the export gave up, which the cancel above has
+	// already returned for.
+	const FMazeRetirementReport Retirement =
+		FMazeRoomRetirement::Retire(Asset, PreviousRoomIds);
+
+	OutReport.RetiredRooms = Retirement.Rooms;
 
 	if (Manifest->Transitions.Num() > 0)
 	{

@@ -20,12 +20,15 @@
 #include "Render/MazeEditorStyleAsset.h"
 #include "Render/MazeGridRenderer.h"
 #include "Render/MazePreviewActor.h"
+#include "Assets/MazeWorldManifest.h"
 #include "Slicers/MazeRoomSlicerBase.h"
+#include "Slicers/MazeSlicer_UniformGrid.h"
 #include "Spawner/MazePlacementRules.h"
 #include "SceneView.h"
 #include "Editor.h"
 #include "ScopedTransaction.h"
 #include "Styling/AppStyle.h"
+#include "TimerManager.h"
 
 #define LOCTEXT_NAMESPACE "MazeForgeEditor"
 
@@ -173,12 +176,32 @@ void UMazeEdMode::OnLevelChangedInWorld(ULevel* Level, UWorld* World)
 		return;
 	}
 
-	if (Settings)
+	// Deferred to the next tick, and only once however many levels arrive before it.
+	//
+	// This handler used to rebuild on every single level. Attaching a 124-room maze fires it
+	// 124 times inside one synchronous call, and each rebuild handed up to 1.9 million cells to
+	// the preview actor — seven seconds apiece at the start, under two by the end as more rooms
+	// were hidden. That was the whole of the nine minutes Attach took; AddLevelToWorld itself
+	// is cheap. Nothing on screen can change until the attach returns anyway, so one rebuild
+	// afterwards shows exactly what 124 would have.
+	if (bLevelRebuildPending || !GEditor)
 	{
-		Settings->RefreshStatus();
+		return;
 	}
 
-	RebuildPreview();
+	bLevelRebuildPending = true;
+
+	GEditor->GetTimerManager()->SetTimerForNextTick(FTimerDelegate::CreateWeakLambda(this, [this]()
+	{
+		bLevelRebuildPending = false;
+
+		if (Settings)
+		{
+			Settings->RefreshStatus();
+		}
+
+		RebuildPreview();
+	}));
 }
 
 void UMazeEdMode::OnAssetGridChanged()
@@ -266,7 +289,19 @@ void UMazeEdMode::RebuildRoomPreview()
 {
 	PreviewRooms.Reset();
 
-	if (!Settings || !Settings->bShowRoomPreview)
+	// Computed whether or not it is drawn, and that is a deliberate reversal.
+	//
+	// It used to stop here when Show Room Preview was off, which was reasonable while this
+	// array existed only to be rendered. It stopped being reasonable when the room count
+	// started being read off it: how many rooms the next Apply will build is a fact about the
+	// data, not about whether a checkbox is ticked, and tying the two made the number vanish
+	// in exactly the case it was added for — a fine lattice being cut up by hand, with the
+	// preview off because the built geometry was on screen.
+	//
+	// The cost is real: Execute counts every cell of every room and builds the portal graph.
+	// It runs on a settings change or a merge, never per frame. If it starts to drag on a big
+	// map, the answer is to cache it against the grid revision, not to go back to silence.
+	if (!Settings)
 	{
 		return;
 	}
@@ -327,8 +362,12 @@ void UMazeEdMode::GatherExportedRoomIds(TSet<FName>& OutRoomIds) const
 			continue;
 		}
 
+		// Visibility counts, not just membership. Hide Room Levels exists so the slicing can
+		// be seen without the built geometry on top of it — and if a hidden level still
+		// suppressed the preview, hiding it would leave nothing on screen at all instead of
+		// the drawing underneath.
 		ULevel* Loaded = Streaming->GetLoadedLevel();
-		if (Loaded && LevelsInWorld.Contains(Loaded))
+		if (Loaded && LevelsInWorld.Contains(Loaded) && Streaming->GetShouldBeVisibleInEditor())
 		{
 			LoadedPackages.Add(Streaming->GetWorldAssetPackageFName().ToString());
 		}
@@ -505,8 +544,80 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 		const TArray<FMazeRoomDesc>& RoomsToDraw =
 			Settings->bShowRoomPreview ? PreviewRooms : Asset->Rooms;
 
+		// Heavier frames while the Rooms tool is in hand, because then the slicing is what is
+		// being edited rather than a hint beside it.
+		const bool bEditingRooms = Settings->Tool == EMazeEditTool::Rooms;
+
 		FMazeGridRenderer::DrawRooms(PDI, Grid, RoomsToDraw, RoomsMinXZ, RoomsMaxXZ,
-			HoveredRoomId, Settings->ActiveDepthSlice, Style);
+			HoveredRoomId, Settings->ActiveDepthSlice, Style,
+			bEditingRooms ? &Style.RoomBoundsEditing : nullptr);
+
+		// The merges, hatched, one colour each — and ONLY with the Rooms tool in hand.
+		//
+		// Everywhere else this is clutter over a decision already made: a merge changes how
+		// the map streams, not how it is drawn, and the cell brush has no use for it. Here it
+		// is the only answer to "what have I cut up so far", which is the question the whole
+		// tool exists to let the designer ask.
+		//
+		// Drawn from the merge list rather than by working out which rooms look fused. The
+		// list is the decision itself, so it is right even before Apply Changes — which is
+		// exactly when it is being looked at.
+		const UMazeSlicer_UniformGrid* Lattice = bEditingRooms
+			? Cast<UMazeSlicer_UniformGrid>(Asset->Slicer)
+			: nullptr;
+
+		if (Lattice)
+		{
+			const int32 Colours = Style.RoomMergePalette.Num();
+
+			// A Shift drag takes the hatching off the merges it covers, live, while the button
+			// is still down. Showing the removal as a removal rather than as a differently
+			// coloured overlay is the whole of it: what you see while dragging is what the map
+			// will look like when you let go, so "these will not be merged" needs no reading.
+			FMazeRoomMerge SplitArea;
+			const bool bSplitting = bRoomDrag && bErasing;
+			if (bSplitting)
+			{
+				const FIntPoint A = Lattice->CellToLattice(
+					FIntPoint(RoomDragStartCell.X, RoomDragStartCell.Z));
+				const FIntPoint B = Lattice->CellToLattice(
+					FIntPoint(HoveredCell.X, HoveredCell.Z));
+
+				SplitArea.MinIndex = FIntPoint(FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y));
+				SplitArea.MaxIndex = FIntPoint(FMath::Max(A.X, B.X), FMath::Max(A.Y, B.Y));
+			}
+
+			for (int32 Index = 0; Index < Lattice->Merges.Num(); ++Index)
+			{
+				const FMazeRoomMerge& Merge = Lattice->Merges[Index];
+
+				if (bSplitting && Merge.Intersects(SplitArea))
+				{
+					continue;
+				}
+
+				FIntPoint LowMin, LowMax, HighMin, HighMax;
+				if (!Lattice->LatticeToCells(Merge.MinIndex, Grid.SizeXZ, LowMin, LowMax)
+					|| !Lattice->LatticeToCells(Merge.MaxIndex, Grid.SizeXZ, HighMin, HighMax))
+				{
+					continue;
+				}
+
+				FMazeLineStyle Line = Style.RoomMerged;
+				if (Colours > 0)
+				{
+					Line.Color = Style.RoomMergePalette[Index % Colours];
+				}
+
+				Line.Color.A *= Style.RoomHatchOpacity;
+
+				const FIntVector Min(LowMin.X, Settings->ActiveDepthSlice, LowMin.Y);
+				const FIntVector Max(HighMax.X - 1, Settings->ActiveDepthSlice, HighMax.Y - 1);
+
+				FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, Line,
+					Style.RoomHatchSpacingCells, false, Style.bRoomHatchCrossed);
+			}
+		}
 	}
 
 	// The placed objects are always drawn, whichever brush is in hand: they are part of the
@@ -535,8 +646,64 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 			FMath::Max(DragStartCell.X, HoveredCell.X), Settings->ActiveDepthSlice,
 			FMath::Max(DragStartCell.Z, HoveredCell.Z));
 
-		FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max,
-			bErasing ? Style.BrushErase : Style.BoxDrag);
+		const FMazeLineStyle& DragLine = bErasing ? Style.BrushErase : Style.BoxDrag;
+
+		FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, DragLine);
+		FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, DragLine,
+			Style.RoomHatchSpacingCells, true);
+	}
+	else if (Settings->Tool == EMazeEditTool::Rooms)
+	{
+		// Snapped out to whole lattice cells, always — while dragging and while merely
+		// hovering. The unit this tool works in is the room, not the cell, and a rectangle
+		// that followed the cursor exactly would promise a precision the merge does not have:
+		// the designer would let go one cell short and get a room he did not draw.
+		const UMazeSlicer_UniformGrid* Lattice =
+			Cast<UMazeSlicer_UniformGrid>(Asset->Slicer);
+
+		if (Lattice)
+		{
+			const FIntPoint FromCell = bRoomDrag
+				? FIntPoint(RoomDragStartCell.X, RoomDragStartCell.Z)
+				: FIntPoint(HoveredCell.X, HoveredCell.Z);
+
+			const FIntPoint A = Lattice->CellToLattice(FromCell);
+			const FIntPoint B = Lattice->CellToLattice(FIntPoint(HoveredCell.X, HoveredCell.Z));
+
+			const FIntPoint LowIndex(FMath::Min(A.X, B.X), FMath::Min(A.Y, B.Y));
+			const FIntPoint HighIndex(FMath::Max(A.X, B.X), FMath::Max(A.Y, B.Y));
+
+			FIntPoint LowMin, LowMax, HighMin, HighMax;
+			const bool bLowOk = Lattice->LatticeToCells(LowIndex, Grid.SizeXZ, LowMin, LowMax);
+			const bool bHighOk = Lattice->LatticeToCells(HighIndex, Grid.SizeXZ, HighMin, HighMax);
+
+			if (bLowOk && bHighOk)
+			{
+				// Max comes back exclusive and the highlight wants the last cell itself.
+				const FIntVector Min(LowMin.X, Settings->ActiveDepthSlice, LowMin.Y);
+				const FIntVector Max(HighMax.X - 1, Settings->ActiveDepthSlice, HighMax.Y - 1);
+
+				const FMazeLineStyle& RoomLine = bErasing ? Style.BrushErase : Style.BoxDrag;
+
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, RoomLine);
+
+				// Mirrored, at the same density as the merges themselves. Same texture means
+				// "this is the same kind of thing"; the opposite slant means "and this one is
+				// happening now" — no legend needed. A split drag gets no hatching at all,
+				// because its whole message is the hatching going away.
+				if (!bErasing)
+				{
+					FMazeLineStyle DragHatch = RoomLine;
+					DragHatch.Color.A *= Style.RoomHatchOpacity;
+
+					// Single family even when the merges are crossed. Crossing this one too
+					// would make what is being selected read exactly like what is already
+					// merged, which is the one distinction the drag has to keep.
+					FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, DragHatch,
+						Style.RoomHatchSpacingCells, true);
+				}
+			}
+		}
 	}
 	else if (Settings->Tool == EMazeEditTool::Objects)
 	{
@@ -655,6 +822,30 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			Status += TEXT("  |  NO SLICING — press Slice Into Rooms");
 		}
 
+		// Said whatever tool is in hand. A merge changes how the whole map streams, so it is
+		// not news that belongs only to the tool that made it — and its own rooms can easily
+		// be off screen when it starts to matter.
+		//
+		// The pending count is the point of the whole workflow: cut a fine lattice up by hand
+		// and "rooms" still reads as the hundreds the last Apply built, while the number that
+		// matters is the one the next Apply will build. Two numbers, both true, and only one
+		// of them is what the designer is working towards.
+		if (const UMazeSlicer_UniformGrid* Lattice = Cast<UMazeSlicer_UniformGrid>(Asset->Slicer))
+		{
+			if (Lattice->Merges.Num() > 0)
+			{
+				Status += FString::Printf(TEXT("  |  merges %d"), Lattice->Merges.Num());
+			}
+
+			// Said whenever it differs, and said as a warning when the difference is the
+			// whole point: a slicing nobody has applied yet is the one the designer is
+			// working towards, and the applied number beside it is history.
+			if (PreviewRooms.Num() > 0 && PreviewRooms.Num() != Asset->Rooms.Num())
+			{
+				Status += FString::Printf(TEXT("  |  %d ROOMS AFTER APPLY"), PreviewRooms.Num());
+			}
+		}
+
 		// Worth its own word in the frame: while peeking, what you see is not the layer order you
 		// paint in, and a stroke made now would land somewhere other than where it looks.
 		if (bPeeking)
@@ -690,6 +881,10 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			if (Settings->Tool == EMazeEditTool::Objects)
 			{
 				Status += ObjectHoverStatus(*Asset);
+			}
+			else if (Settings->Tool == EMazeEditTool::Rooms)
+			{
+				Status += RoomHoverStatus(*Asset);
 			}
 		}
 		else if (bViewParallelToPlane)
@@ -885,6 +1080,12 @@ bool UMazeEdMode::MouseMove(FEditorViewportClient* ViewportClient, FViewport* Vi
 {
 	ReconcilePeek(Viewport);
 
+	// Plain motion only arrives while the mouse is NOT captured, so a room drag still standing
+	// here means its release went missing — alt-tab mid-drag, or a panel button stealing the
+	// event. Left alone it would keep StartTracking returning true and the viewport would stay
+	// captured for the rest of the session, which is the bug AbortStroke exists to undo.
+	bRoomDrag = false;
+
 	bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
 
 	if (bPainting)
@@ -902,13 +1103,21 @@ bool UMazeEdMode::MouseMove(FEditorViewportClient* ViewportClient, FViewport* Vi
 
 bool UMazeEdMode::CapturedMouseMove(FEditorViewportClient* ViewportClient, FViewport* Viewport, int32 X, int32 Y)
 {
-	if (!bPainting)
+	// The room drag is listed here as well as the paint stroke. Once the viewport captures the
+	// mouse, plain MouseMove stops arriving, and without this the rubber-band rectangle would
+	// stay frozen on the cell the drag started from — the gesture would look broken while
+	// working perfectly.
+	if (!bPainting && !bRoomDrag)
 	{
 		return false;
 	}
 
 	bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
-	ContinueStroke();
+
+	if (bPainting)
+	{
+		ContinueStroke();
+	}
 
 	if (ViewportClient)
 	{
@@ -995,6 +1204,36 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 	// Alt + LMB is the camera orbit. We do not intercept it.
 	if (Key == EKeys::LeftMouseButton && !bAlt && GetTargetAsset())
 	{
+		// The Rooms tool is a drag that decides nothing until it ends. Merging is defined by
+		// the rectangle, and there is no meaningful half of one — applying as the mouse moves
+		// would fuse rooms the designer was only passing over on the way to the ones he meant.
+		if (Settings->Tool == EMazeEditTool::Rooms)
+		{
+			if (Event == IE_Pressed)
+			{
+				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
+				if (bHasHover)
+				{
+					bRoomDrag = true;
+					bErasing = bShift;
+					RoomDragStartCell = HoveredCell;
+				}
+			}
+			else if (Event == IE_Released && bRoomDrag)
+			{
+				bRoomDrag = false;
+				ApplyRoomDrag(RoomDragStartCell, HoveredCell, bErasing);
+				bErasing = false;
+			}
+
+			if (ViewportClient)
+			{
+				ViewportClient->Invalidate(false, false);
+			}
+
+			return true;
+		}
+
 		// The object brush is a click, not a stroke, so it never enters the paint machinery:
 		// no transaction spanning a drag, no box fill, nothing to leave open.
 		if (Settings->Tool == EMazeEditTool::Objects)
@@ -1032,7 +1271,7 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 
 bool UMazeEdMode::StartTracking(FEditorViewportClient* ViewportClient, FViewport* Viewport)
 {
-	return bPainting;
+	return bPainting || bRoomDrag;
 }
 
 bool UMazeEdMode::EndTracking(FEditorViewportClient* ViewportClient, FViewport* Viewport)
@@ -1042,13 +1281,24 @@ bool UMazeEdMode::EndTracking(FEditorViewportClient* ViewportClient, FViewport* 
 		EndStroke();
 		return true;
 	}
+
+	// The release can arrive here instead of at InputKey. Whichever comes first clears the
+	// flag, so the merge is applied once and not twice.
+	if (bRoomDrag)
+	{
+		bRoomDrag = false;
+		ApplyRoomDrag(RoomDragStartCell, HoveredCell, bErasing);
+		bErasing = false;
+		return true;
+	}
+
 	return false;
 }
 
 bool UMazeEdMode::DisallowMouseDeltaTracking() const
 {
 	// While a stroke is in progress the viewport must not read mouse motion as moving objects.
-	return bPainting;
+	return bPainting || bRoomDrag;
 }
 
 // ---------------------------------------------------------------- grid editing
@@ -1286,6 +1536,217 @@ bool UMazeEdMode::ApplyObjectClick(bool bErase)
 	return true;
 }
 
+// ---------------------------------------------------------------- room merging
+
+FString UMazeEdMode::RoomHoverStatus(const UMazeGridAsset& Asset) const
+{
+	const UMazeSlicer_UniformGrid* Lattice = Cast<UMazeSlicer_UniformGrid>(Asset.Slicer);
+	if (!Lattice)
+	{
+		return FString(TEXT("  |  MERGING NEEDS THE UNIFORM GRID SLICER"));
+	}
+
+	// The gesture comes first and is never replaced by anything.
+	//
+	// It used to be the last branch of an if/else that the visibility warnings won, so
+	// whenever a setting was off — which is precisely when a newcomer to the tool is looking
+	// at it — the only line explaining how to use it was the one that got dropped. A warning
+	// and an instruction are not alternatives; the warning is why nothing is happening, the
+	// instruction is what to do.
+	FString Status(TEXT("  |  DRAG = merge, SHIFT+DRAG = split"));
+
+	const FIntPoint Index = Lattice->CellToLattice(FIntPoint(HoveredCell.X, HoveredCell.Z));
+	const int32 MergeIndex = Lattice->FindMerge(Index);
+
+	Status += (MergeIndex == INDEX_NONE)
+		? FString::Printf(TEXT("  |  room [%d, %d]"), Index.X, Index.Y)
+		: FString::Printf(TEXT("  |  room [%d, %d] is merged: %s"),
+			Index.X, Index.Y, *Lattice->Merges[MergeIndex].Describe());
+
+	// Appended, not substituted. Merging edits a slicing that is only drawn when these are
+	// on, so with them off the tool works perfectly and appears to do nothing at all — which
+	// looks exactly like being broken.
+	if (!Settings->bShowRooms)
+	{
+		Status += TEXT("  |  ROOMS ARE HIDDEN — tick Show Rooms");
+	}
+	else if (!Settings->bShowRoomPreview)
+	{
+		Status += TEXT("  |  SHOWING THE APPLIED SLICING — tick Show Room Preview to see "
+		               "merges before Apply Changes");
+	}
+
+	return Status;
+}
+void UMazeEdMode::ApplyRoomDrag(const FIntVector& A, const FIntVector& B, bool bSplit)
+{
+	UMazeGridAsset* Asset = GetTargetAsset();
+	if (!Asset)
+	{
+		return;
+	}
+
+	UMazeSlicer_UniformGrid* Lattice = Cast<UMazeSlicer_UniformGrid>(Asset->Slicer);
+	if (!Lattice)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Rooms: merging is a Uniform Grid feature, and this asset slices with %s. "
+			     "Switch the slicer under Rooms, or merge nothing."),
+			Asset->Slicer ? *Asset->Slicer->GetDisplayName().ToString() : TEXT("no slicer"));
+		return;
+	}
+
+	const FIntPoint IndexA = Lattice->CellToLattice(FIntPoint(A.X, A.Z));
+	const FIntPoint IndexB = Lattice->CellToLattice(FIntPoint(B.X, B.Z));
+
+	FMazeRoomMerge Area;
+	Area.MinIndex = FIntPoint(FMath::Min(IndexA.X, IndexB.X), FMath::Min(IndexA.Y, IndexB.Y));
+	Area.MaxIndex = FIntPoint(FMath::Max(IndexA.X, IndexB.X), FMath::Max(IndexA.Y, IndexB.Y));
+
+	// Both the asset and the slicer are marked. The slicer is an instanced subobject, and
+	// undoing a change to it without the owner having been marked leaves the asset believing
+	// it was never touched — the same trap the generator seed fell into.
+	const FScopedTransaction Transaction(bSplit
+		? LOCTEXT("MazeRoomSplit", "MazeForge: Split Rooms")
+		: LOCTEXT("MazeRoomMerge", "MazeForge: Merge Rooms"));
+	Asset->Modify();
+	Lattice->Modify();
+
+	if (bSplit)
+	{
+		const int32 Removed = Lattice->RemoveMergesIn(Area);
+
+		if (Removed == 0)
+		{
+			UE_LOG(LogMazeForge, Log,
+				TEXT("Rooms: nothing merged under that rectangle — %s is plain lattice already."),
+				*Area.Describe());
+		}
+		else
+		{
+			UE_LOG(LogMazeForge, Log,
+				TEXT("Rooms: %d merge(s) split. The lattice cells go back to being one room "
+				     "each. Press Apply Changes to rebuild the levels."), Removed);
+		}
+	}
+	else
+	{
+		// A drag that lands entirely inside one existing merge changes nothing. Caught before
+		// the edit rather than described after it: AddMerge would happily absorb that merge and
+		// put back a rectangle identical to the one it removed, and report a swallow — a change
+		// announced where none happened, which is the exact failure this plugin keeps hunting.
+		const int32 Enclosing = Lattice->FindMerge(Area.MinIndex);
+		if (Enclosing != INDEX_NONE && Lattice->Merges[Enclosing].Contains(Area.MaxIndex))
+		{
+			UE_LOG(LogMazeForge, Log,
+				TEXT("Rooms: that area is already one room — %s. Nothing changed."),
+				*Lattice->Merges[Enclosing].Describe());
+
+			RebuildRoomPreview();
+			InvalidateViewports();
+			return;
+		}
+
+		const int32 Absorbed = Lattice->AddMerge(Area);
+		const FMazeRoomMerge Result = Lattice->Merges.Last();
+
+		if (Result.CellCount() <= 1)
+		{
+			// One cell fused with nothing is not a merge, and leaving it in the list would be
+			// a record of an action that changed nothing. Dropped rather than kept, so the
+			// array stays a list of real decisions.
+			Lattice->Merges.Pop();
+
+			UE_LOG(LogMazeForge, Log,
+				TEXT("Rooms: a single room is already a single room. Drag across two or more."));
+		}
+		else
+		{
+			const FString Grew = (Absorbed > 0)
+				? FString::Printf(TEXT(" It swallowed %d merge(s) it overlapped, so it covers %s."),
+					Absorbed, *Result.Describe())
+				: FString();
+
+			UE_LOG(LogMazeForge, Log,
+				TEXT("Rooms: %s become one room, named R_%03d_%03d.%s Press Apply Changes to "
+				     "rebuild the levels."),
+				*Result.Describe(), Result.MinIndex.X, Result.MinIndex.Y, *Grew);
+
+			ReportRoomsLostToMerge(*Asset, Result);
+		}
+	}
+
+	RebuildRoomPreview();
+	InvalidateViewports();
+}
+
+void UMazeEdMode::ReportRoomsLostToMerge(const UMazeGridAsset& Asset,
+                                         const FMazeRoomMerge& Merge) const
+{
+	// The half this feature does NOT do, said out loud at the moment it becomes true.
+	//
+	// A merge moves a boundary. Hand-placed decor does not live at a coordinate — it lives in
+	// the level of the room it was dropped into, and that is the only binding the streaming
+	// reads. So rooms that disappear into a merge leave their levels behind, with everything
+	// in them, and nothing in the viewport will look wrong afterwards.
+	const FName Survivor(*FString::Printf(TEXT("R_%03d_%03d"),
+		Merge.MinIndex.X, Merge.MinIndex.Y));
+
+	const UMazeWorldManifest* Manifest = Asset.Manifest.LoadSynchronous();
+	if (!Manifest)
+	{
+		return;
+	}
+
+	TArray<FString> Orphaned;
+	for (int32 IndexX = Merge.MinIndex.X; IndexX <= Merge.MaxIndex.X; ++IndexX)
+	{
+		for (int32 IndexZ = Merge.MinIndex.Y; IndexZ <= Merge.MaxIndex.Y; ++IndexZ)
+		{
+			const FName RoomId(*FString::Printf(TEXT("R_%03d_%03d"), IndexX, IndexZ));
+
+			// Only rooms that were actually built have a level to orphan, and the merged room
+			// keeps its own name, so it is not one of them.
+			if (RoomId != Survivor && Manifest->FindRoom(RoomId))
+			{
+				Orphaned.Add(RoomId.ToString());
+			}
+		}
+	}
+
+	if (Orphaned.Num() == 0)
+	{
+		return;
+	}
+
+	// Whether the merged room inherits a level or starts from nothing, and the difference is
+	// not cosmetic.
+	//
+	// The name comes from the merge's lowest lattice cell, which is a rule that does not care
+	// whether that cell was ever a room. Empty cells are discarded by the slicing, so a merge
+	// whose lowest corner sits over empty space takes a name no level has ever had — and then
+	// EVERY built room in it is orphaned, the decor included. A merge that starts on a real
+	// room keeps that room's level and only the others are stranded. Both are worth saying;
+	// they need different reactions.
+	if (Manifest->FindRoom(Survivor))
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Rooms: the merged room keeps the level of %s, but %d other built room(s) "
+			     "disappear into it — %s. Their levels keep whatever you placed in them by "
+			     "hand. Move that decor across before the next Apply Changes."),
+			*Survivor.ToString(), Orphaned.Num(), *FString::Join(Orphaned, TEXT(", ")));
+	}
+	else
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Rooms: the merged room is called %s, which has never been built — its lowest "
+			     "corner is over empty space. So it starts with NO level, and all %d built "
+			     "room(s) inside it are orphaned: %s. Anything placed in them by hand stays "
+			     "there and stops streaming. Move that decor across before the next Apply "
+			     "Changes, or draw the merge from a corner that is a real room."),
+			*Survivor.ToString(), Orphaned.Num(), *FString::Join(Orphaned, TEXT(", ")));
+	}
+}
 void UMazeEdMode::AbortStroke()
 {
 	if (!bPainting)

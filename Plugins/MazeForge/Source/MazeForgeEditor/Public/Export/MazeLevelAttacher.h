@@ -66,6 +66,23 @@ public:
 	/** Whether that level is the persistent one — where decor never streams. */
 	static bool IsPersistentLevelCurrent();
 
+	/**
+	 *  Shows or hides every room level of this maze at once. Returns how many changed.
+	 *
+	 *  For looking at the slicing. Once the rooms are attached, the viewport shows the built
+	 *  geometry, and the room frames and merge hatching are thin lines drawn on top of a solid
+	 *  maze — the one view in which the thing being edited is the hardest to see. Hiding the
+	 *  levels puts the drawing back on screen instead, which is what the frames belong to.
+	 *
+	 *  A toggle rather than two buttons, and the direction is read off the levels themselves:
+	 *  a remembered flag would be a second opinion about a state the Levels panel can change
+	 *  without telling anyone.
+	 */
+	static int32 SetRoomLevelsVisible(const UMazeGridAsset* Asset, bool bVisible);
+
+	/** Whether any room level of this maze is currently shown in the editor. */
+	static bool AreRoomLevelsVisible(const UMazeGridAsset* Asset);
+
 private:
 	/**
 	 *  Deletes the Outliner folders this maze created, once its levels are out of the world.

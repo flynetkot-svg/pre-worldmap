@@ -8,6 +8,7 @@
 class AMazePreviewActor;
 class UMazeEdModeSettings;
 class UMazeGridAsset;
+struct FMazeRoomMerge;
 class ULevel;
 class UWorld;
 class FSceneView;
@@ -29,6 +30,10 @@ struct FMazeGrid;
  *      PgUp / PgDn         active depth slice
  *      [ / ]               brush size
  *      C                   new actors go into the room under the cursor
+ *
+ *  With the Rooms tool in hand:
+ *      LMB + drag          fuse the rooms under the rectangle into one
+ *      Shift + LMB + drag  split the merges the rectangle touches
  */
 UCLASS()
 class MAZEFORGEEDITOR_API UMazeEdMode : public UBaseLegacyWidgetEdMode
@@ -155,6 +160,9 @@ private:
 
 	void OnLevelChangedInWorld(ULevel* Level, UWorld* World);
 
+	/** A rebuild for level changes is already queued for the next tick. See the handler. */
+	bool bLevelRebuildPending = false;
+
 	/**
 	 *  Drop the peek if the key is no longer physically down.
 	 *
@@ -168,6 +176,34 @@ private:
 	bool bErasing = false;
 	bool bBoxDrag = false;
 	FIntVector DragStartCell = FIntVector::ZeroValue;
+
+	/**
+	 *  A drag of the Rooms tool. Separate from bPainting on purpose.
+	 *
+	 *  bPainting owns an open transaction and a grid being written cell by cell as the mouse
+	 *  moves. This one writes nothing until the button comes up, because a merge is decided by
+	 *  the rectangle and there is no such thing as half of it. Sharing the flag would mean
+	 *  every guard around the stroke machinery had to ask which kind of stroke it was.
+	 */
+	bool bRoomDrag = false;
+	FIntVector RoomDragStartCell = FIntVector::ZeroValue;
+
+	/**
+	 *  Fuses or splits the lattice cells the drag covered, and says what it did.
+	 *
+	 *  Reports rather than migrates, and the distinction is the whole of what this does not
+	 *  do: merging moves a boundary, and actors placed by hand live in the level of the room
+	 *  they were put in, not at a coordinate. Rooms that disappear into a merge leave their
+	 *  levels behind with whatever is in them. Saying so is cheap and honest; moving them is
+	 *  real work with levels and belongs in its own pass.
+	 */
+	void ApplyRoomDrag(const FIntVector& A, const FIntVector& B, bool bSplit);
+
+	/** The Rooms tool's verdict for the hovered cell, ready to append to the HUD line. */
+	FString RoomHoverStatus(const UMazeGridAsset& Asset) const;
+
+	/** Names the built rooms a merge is about to swallow, and what happens to their decor. */
+	void ReportRoomsLostToMerge(const UMazeGridAsset& Asset, const FMazeRoomMerge& Merge) const;
 
 	/** Intersection of the cursor ray with the plane of the active depth slice. */
 	bool ComputeCellUnderCursor(FEditorViewportClient* ViewportClient, FIntVector& OutCell);

@@ -113,6 +113,78 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms")
 	FMazeLineStyle RoomHovered = FMazeLineStyle(FLinearColor(1.00f, 0.90f, 0.30f, 1.0f), 5.0f);
 
+	/**
+	 *  Room frames while the Rooms tool is in hand.
+	 *
+	 *  Heavier than the everyday frame on purpose. Normally the room bounds are a hint next to
+	 *  the thing being drawn; with the Rooms tool they ARE the thing being drawn, and a 2px
+	 *  line among the grid overlay and the placement footprints has to be looked for rather
+	 *  than seen.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms")
+	FMazeLineStyle RoomBoundsEditing = FMazeLineStyle(FLinearColor(1.00f, 0.60f, 0.15f, 1.0f), 6.0f);
+
+	/**
+	 *  Hatching over a room that was fused out of several lattice cells. Thickness and
+	 *  visibility only — the colour comes from the palette below.
+	 *
+	 *  Drawn only while the Rooms tool is in hand. Everywhere else it would be permanent
+	 *  clutter over a decision already made; there, it is the only answer to "what have I
+	 *  merged so far".
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms")
+	FMazeLineStyle RoomMerged = FMazeLineStyle(FLinearColor(1.00f, 0.55f, 0.10f, 0.7f), 2.0f);
+
+	/**
+	 *  Cycled through so that merges lying side by side can be told apart.
+	 *
+	 *  One colour for all of them would answer "is this merged" but not "is this ONE merge or
+	 *  two touching ones" — and with a fine lattice cut up by hand, that second question is
+	 *  the whole of what the designer is looking at.
+	 */
+	/**
+	 *  Distance between hatch strokes, in cells. Smaller is denser.
+	 *
+	 *  In cells rather than centimetres so it reads in the units the maze is drawn in, and so
+	 *  it does not have to be retuned when the cell size changes.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms",
+		meta = (ClampMin = "0.25", UIMax = "8.0"))
+	float RoomHatchSpacingCells = 1.5f;
+
+	/**
+	 *  Draw the second diagonal as well, so the area reads as a wash rather than as stripes.
+	 *
+	 *  This is the overlay. A genuinely filled translucent quad would need a material and a
+	 *  mesh builder; two crossed families of lines at a low opacity land in the same place
+	 *  visually, cost nothing new, and keep the maze underneath readable — which a real fill
+	 *  at any useful opacity does not.
+	 *
+	 *  Off leaves single-direction hatching, which is lighter over dense geometry.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms")
+	bool bRoomHatchCrossed = true;
+
+	/**
+	 *  Scales the alpha of every hatch stroke. 1 leaves the palette colours as they are.
+	 *
+	 *  A single dial rather than editing six palette entries: how loud the hatching should be
+	 *  depends on the maze material and the scene lighting, which is one decision, not six.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms",
+		meta = (ClampMin = "0.0", ClampMax = "1.0"))
+	float RoomHatchOpacity = 1.0f;
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms")
+	TArray<FLinearColor> RoomMergePalette = {
+		FLinearColor(0.35f, 0.75f, 1.00f, 0.75f),
+		FLinearColor(0.40f, 0.90f, 0.45f, 0.75f),
+		FLinearColor(1.00f, 0.45f, 0.40f, 0.75f),
+		FLinearColor(0.95f, 0.80f, 0.30f, 0.75f),
+		FLinearColor(0.80f, 0.55f, 1.00f, 0.75f),
+		FLinearColor(0.35f, 0.90f, 0.85f, 0.75f)
+	};
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Rooms")
 	EMazeRoomFramePlane RoomFramePlane = EMazeRoomFramePlane::ActiveSlice;
 

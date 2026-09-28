@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Data/MazeTypes.h"
 
+class UMazeBuildSettings;
 class UObject;
 class UPackage;
 
@@ -34,6 +35,18 @@ namespace MazeExport
 	 *  built inline in two, which is the same divergence this file exists to prevent.
 	 */
 	FString LevelAssetName(const FString& MazeName, FName RoomId);
+
+	/**
+	 *  The asset name and package of a maze's manifest. The only place where they are defined.
+	 *
+	 *  The rule used to live inline in the exporter alone, and everything else reached the
+	 *  manifest through the pointer stored on the grid asset. That pointer only exists once
+	 *  the grid asset has been saved after an export — so a crash between the two, on a map
+	 *  whose export had just succeeded, left a perfectly good manifest on disk that Attach
+	 *  reported as "empty". Deriving the path is what lets every caller find it regardless.
+	 */
+	FString ManifestAssetName(const UMazeBuildSettings* Settings, const FString& MazeName);
+	FString ManifestPackageName(const UMazeBuildSettings* Settings, const FString& MazeName);
 
 	/** Strips the edge slashes: a leading one makes a nameless ghost folder in the Outliner. */
 	FString CleanFolder(FString Folder);
