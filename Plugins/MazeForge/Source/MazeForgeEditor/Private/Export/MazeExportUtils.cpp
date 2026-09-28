@@ -153,12 +153,9 @@ namespace MazeExport
 		}
 
 		// The world the designer has open is never touched, under any circumstances.
-		if (GEditor)
+		if (const UWorld* Shown = EditorWorld())
 		{
-			if (const UWorld* EditorWorld = GEditor->GetEditorWorldContext().World())
-			{
-				InOutPackages.Remove(EditorWorld->GetPackage());
-			}
+			InOutPackages.Remove(Shown->GetPackage());
 		}
 
 		if (InOutPackages.Num() == 0)
@@ -185,4 +182,9 @@ namespace MazeExport
 		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
 		InOutPackages.Reset();
 	}
+}
+
+UWorld* MazeExport::EditorWorld()
+{
+	return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
 }

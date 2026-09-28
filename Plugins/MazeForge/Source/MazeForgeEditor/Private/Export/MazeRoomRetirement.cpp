@@ -30,12 +30,7 @@ namespace
 	/** Where retired assets go. A sibling of the live assets, not their parent. */
 	const TCHAR* DeprecatedFolder = TEXT("Deprecated");
 
-	UWorld* GetEditorWorld()
-	{
-		return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
-	}
-
-	ULevelStreaming* FindStreamingLevel(UWorld* World, const FString& PackageName)
+	ULevelStreaming* FindStreamingLevelByPath(UWorld* World, const FString& PackageName)
 	{
 		if (!World)
 		{
@@ -143,7 +138,7 @@ namespace
 			return;
 		}
 
-		if (ULevelStreaming* Streaming = FindStreamingLevel(World, Folders.LevelRoot / LevelAsset))
+		if (ULevelStreaming* Streaming = FindStreamingLevelByPath(World, Folders.LevelRoot / LevelAsset))
 		{
 			if (ULevel* Loaded = Streaming->GetLoadedLevel())
 			{
@@ -353,7 +348,7 @@ FMazeRetirementReport FMazeRoomRetirement::Retire(const UMazeGridAsset* Asset,
 	}
 
 	const FMazeFolders Folders(*Asset);
-	UWorld* World = GetEditorWorld();
+	UWorld* World = MazeExport::EditorWorld();
 
 	for (const FName& RoomId : PreviousRoomIds)
 	{
@@ -448,7 +443,7 @@ FMazeDeprecationReport FMazeRoomRetirement::MoveStaleToDeprecated(const UMazeGri
 	}
 
 	const double StartTime = FPlatformTime::Seconds();
-	UWorld* World = GetEditorWorld();
+	UWorld* World = MazeExport::EditorWorld();
 
 	// Anything still on the map comes off it first: a world that is part of the editor world
 	// cannot be renamed. Normally Apply has done this already; a crash may not have let it.

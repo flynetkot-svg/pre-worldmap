@@ -45,6 +45,34 @@ struct MAZEFORGECORE_API FMazeGrid
 	UPROPERTY()
 	TMap<FIntVector, FMazeCell> Cells;
 
+	/**
+	 *  Cells as they are stored on disk: one compressed block instead of a tagged entry per
+	 *  cell. Tagged, the millions of two-byte cells of a 707x376 map weighed 219 MB.
+	 *
+	 *  Empty in memory. UMazeGridAsset::Serialize fills it for the length of a save and turns
+	 *  it back into Cells after a load. Grids saved before the block existed load through the
+	 *  tagged Cells as before and switch over on their next save.
+	 */
+	UPROPERTY()
+	TArray<uint8> PackedCells;
+
+	// ------------------------------------------------ disk format (MazeCellPacking.cpp)
+
+	/**
+	 *  For the length of a save: moves Cells into OutStash and writes them into PackedCells.
+	 *
+	 *  Returns false and touches nothing when the cells must stay in the tagged form: either
+	 *  PackedCells still holds a block that failed to load — it is written back as it is, so
+	 *  the data survives — or the grid is too large for one block.
+	 */
+	bool BeginPack(TMap<FIntVector, FMazeCell>& OutStash, bool bCompress);
+
+	/** Undoes BeginPack once the save is done. */
+	void EndPack(TMap<FIntVector, FMazeCell>& Stash);
+
+	/** After a load: replaces Cells with the contents of PackedCells. false if the block is unreadable. */
+	bool UnpackAfterLoad(FString& OutError);
+
 	// ------------------------------------------------------------- dimensions
 
 	int32 DepthCells() const { return Depth.TotalCells(); }

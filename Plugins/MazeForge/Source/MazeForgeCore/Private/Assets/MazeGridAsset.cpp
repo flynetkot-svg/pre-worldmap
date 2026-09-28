@@ -273,6 +273,71 @@ FString UMazeGridAsset::GetSafeMazeName() const
 	return Safe;
 }
 
+void UMazeGridAsset::Serialize(FArchive& Ar)
+{
+	// The class default object is the baseline every asset is compared against; it keeps its
+	// empty map in the plain form, the same for every archive.
+	if (HasAnyFlags(RF_ClassDefaultObject))
+	{
+		Super::Serialize(Ar);
+		return;
+	}
+
+	// Every saving archive takes the packed path, the package harvester included: it collects
+	// the names the real save will write, so it has to see the same properties. Undo records
+	// skip the compression — they stay in memory and are taken on every Modify.
+	const bool bSaving = Ar.IsSaving();
+	const bool bCompress = !Ar.IsTransacting();
+
+	TMap<FIntVector, FMazeCell> GridStash, SnapshotStash;
+	const bool bGridPacked     = bSaving && Grid.BeginPack(GridStash, bCompress);
+	const bool bSnapshotPacked = bSaving && Snapshot.BeginPack(SnapshotStash, bCompress);
+
+	const bool bToDisk = Ar.IsPersistent() && !Ar.IsTransacting() && !Ar.IsObjectReferenceCollector();
+	if (bGridPacked && bToDisk)
+	{
+		UE_LOG(LogMazeForge, Log, TEXT("%s: %d grid cells saved as %s."),
+			*GetName(), GridStash.Num(), *FText::AsMemory(Grid.PackedCells.Num()).ToString());
+	}
+
+	Super::Serialize(Ar);
+
+	if (bGridPacked)
+	{
+		Grid.EndPack(GridStash);
+	}
+	if (bSnapshotPacked)
+	{
+		Snapshot.EndPack(SnapshotStash);
+	}
+
+	if (!Ar.IsLoading())
+	{
+		return;
+	}
+
+	if (bToDisk && Grid.PackedCells.Num() == 0 && Grid.Cells.Num() > 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("%s is stored in the old grid format (%d cells written one by one). ")
+			TEXT("Save it once to shrink the file."), *GetName(), Grid.Cells.Num());
+	}
+
+	auto Unpack = [this](FMazeGrid& Target, const TCHAR* What)
+	{
+		FString Error;
+		if (!Target.UnpackAfterLoad(Error))
+		{
+			UE_LOG(LogMazeForge, Error,
+				TEXT("%s: the saved %s cells could not be read (%s). The block is kept and will be ")
+				TEXT("written back unchanged on save; do not edit this grid until this is fixed."),
+				*GetName(), What, *Error);
+		}
+	};
+	Unpack(Grid, TEXT("grid"));
+	Unpack(Snapshot, TEXT("snapshot"));
+}
+
 void UMazeGridAsset::PostLoad()
 {
 	Super::PostLoad();
