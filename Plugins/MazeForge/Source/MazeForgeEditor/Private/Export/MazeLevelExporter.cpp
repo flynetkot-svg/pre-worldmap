@@ -19,6 +19,7 @@
 #include "Export/MazeMeshBuilder_Faces.h"
 #include "FileHelpers.h"
 #include "GameFramework/WorldSettings.h"
+#include "Hash/CityHash.h"
 #include "MazeForgeCore.h"
 #include "Misc/PackageName.h"
 #include "Misc/ScopedSlowTask.h"
@@ -31,6 +32,83 @@
 
 #define LOCTEXT_NAMESPACE "MazeForgeEditor"
 
+namespace
+{
+	/**
+	 *  Part of every level hash. Raised whenever the export changes what it writes into a level,
+	 *  so that levels written by an older build are rewritten once rather than trusted.
+	 */
+	constexpr int32 LevelFormatVersion = 1;
+
+	/** A struct as the Details panel would copy it: every property, including ones added later. */
+	template <typename TStruct>
+	void AppendStructText(FString& Key, const TStruct& Value)
+	{
+		FString Text;
+		TStruct::StaticStruct()->ExportText(Text, &Value, nullptr, nullptr, PPF_None, nullptr);
+		Key += Text;
+		Key += TEXT('|');
+	}
+
+	/**
+	 *  Everything a room's level is written from, boiled down to one number.
+	 *
+	 *  The mesh hash (RoomHash) covers the geometry. On top of it a level carries the neighbour
+	 *  list on its anchor, the objects standing in the room and the library types they are built
+	 *  from, plus where and under which names things are written (Context). Two levels with the
+	 *  same hash come out of the export identical, so one already on disk can be left alone.
+	 *
+	 *  An object is fitted against the geometry around it, and a large footprint can reach past
+	 *  the one-cell skirt the mesh hash looks at. So in a room with objects the neighbours' mesh
+	 *  hashes count too: an edit next door re-exports the level (cheap — the meshes are reused)
+	 *  rather than risk leaving an object floating where a wall used to be.
+	 */
+	int64 ComputeLevelHash(const UMazeGridAsset& Asset, const FMazeRoomDesc& Room, int64 RoomHash,
+		const TArray<int32>* RoomPlacements, const UMazeSpawnAsset* Spawns,
+		const UMazeObjectLibrary* Library, const FString& Context)
+	{
+		FString Key = FString::Printf(TEXT("v%d|%s|%016llx|"),
+			LevelFormatVersion, *Context, static_cast<uint64>(RoomHash));
+
+		for (const FName& Neighbor : Room.Neighbors)
+		{
+			Key += Neighbor.ToString();
+			Key += TEXT(',');
+		}
+		Key += TEXT('|');
+
+		if (RoomPlacements && Spawns)
+		{
+			for (const int32 Index : *RoomPlacements)
+			{
+				const FMazePlacement& Placement = Spawns->Placements[Index];
+				AppendStructText(Key, Placement);
+
+				if (const FMazeObjectType* Type = Library ? Library->FindType(Placement.TypeId) : nullptr)
+				{
+					AppendStructText(Key, *Type);
+				}
+				else
+				{
+					Key += TEXT("no type|");
+				}
+			}
+
+			for (const FName& Neighbor : Room.Neighbors)
+			{
+				if (const FMazeRoomDesc* Other = Asset.FindRoom(Neighbor))
+				{
+					Key += FString::Printf(TEXT("%016llx,"),
+						static_cast<uint64>(Asset.ComputeRoomHash(*Other)));
+				}
+			}
+		}
+
+		return static_cast<int64>(CityHash64(reinterpret_cast<const char*>(*Key),
+			static_cast<uint32>(Key.Len() * sizeof(TCHAR))));
+	}
+}
+
 FString FMazeExportReport::ToString() const
 {
 	// Retirement is mentioned only when it happened. A permanent "retired 0" would train the
@@ -41,20 +119,20 @@ FString FMazeExportReport::ToString() const
 		: FString();
 
 	return Retired + FString::Printf(
-		TEXT("rooms %d, levels %d, meshes %d (of them reused %d), ")
+		TEXT("rooms %d, levels written %d, unchanged and left alone %d, meshes %d (of them reused %d), ")
 		TEXT("triangles %d, collision boxes %d; ")
 		TEXT("objects %d (snapped %d, re-anchored %d, skipped %d, unknown type %d, ")
 		TEXT("facing mode without a wall %d); ")
 		TEXT("generated actors replaced %d (hand resizing lost %d), user actors preserved %d; ")
 		TEXT("save failures %d; packages unloaded %d; in %.2f s"),
-		Rooms, Levels, Meshes, ReusedMeshes, Triangles, CollisionBoxes,
+		Rooms, Levels, ReusedLevels, Meshes, ReusedMeshes, Triangles, CollisionBoxes,
 		Objects, SnappedObjects, ReanchoredObjects, SkippedObjects, OrphanObjects,
 		FacingModeIgnored,
 		ReplacedActors, HandResizedActors, PreservedActors,
 		FailedPackages, FlushedPackages, Seconds);
 }
 
-bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& OutReport)
+bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& OutReport, bool bForceAll)
 {
 	if (!Asset || Asset->Rooms.Num() == 0)
 	{
@@ -196,6 +274,34 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 	// levels used to stay in the map for ever.
 	const TArray<FName> PreviousRoomIds = FMazeRoomRetirement::SnapshotRoomIds(Manifest);
 
+	// A level left alone still needs its manifest entry and its transition points, and the
+	// previous manifest is where they are. Read before it is replaced.
+	TMap<FName, FMazeRoomEntry> PreviousEntries;
+	for (const FMazeRoomEntry& Entry : Manifest->Rooms)
+	{
+		PreviousEntries.Add(Entry.RoomId, Entry);
+	}
+
+	TMap<FName, TArray<FMazeTransitionPoint>> PreviousTransitions;
+	for (const FMazeTransitionPoint& Point : Manifest->Transitions)
+	{
+		if (const FMazeRoomDesc* Owner = MazeRooms::FindAtXZ(Asset->Rooms, Point.CellXZ))
+		{
+			PreviousTransitions.FindOrAdd(Owner->RoomId).Add(Point);
+		}
+	}
+
+	// Where and under which names a level's contents are written. Change any of it and every
+	// level is out of date, even though not one cell moved.
+	const FString CommonContext = FString::Printf(TEXT("%s|%s|%s|%s|%s|%d"),
+		*MeshRoot, *GeneratedTag.ToString(), *FolderRoot, *MeshSubFolder, *ObjectSubFolder,
+		bFolderPerRoom ? 1 : 0);
+
+	// Written to the asset only once the export has finished, like the bake's hashes: a cancelled
+	// export leaves the manifest as it was, and a level marked current against a manifest that
+	// never heard of it would lose its transition points on the next pass.
+	TMap<FName, int64> NewLevelHashes;
+
 	Manifest->WorldBounds = Grid.GetWorldBounds();
 	Manifest->PlayPlaneY = static_cast<float>(Grid.GetPlayPlaneY());
 
@@ -218,14 +324,44 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 		const FVector RoomOrigin = Grid.GetBoxWorldBounds(Room.MinXZ, Room.MaxXZ).Min;
 		const TArray<int32>* RoomPlacements = PlacementsByRoom.Find(Room.RoomId);
 
+		const FString LevelName = MazeExport::LevelAssetName(MazeName, Room.RoomId);
+		const FString LevelPackageName = LevelRoot / LevelName;
+		const FString LevelContext = CommonContext + TEXT("|") + LevelPackageName;
+
+		// Computed once and reused below: the hash walks the room's cells plus a one-cell skirt,
+		// and doing that twice per room would be the most expensive part of the export.
+		const int64 RoomHash = Asset->ComputeRoomHash(Room);
+
+		// ------------------------------------------------------- unchanged level
+
+		// Nothing the level is made of has moved since it was written, the file is still there
+		// and the last manifest knows the room: the level is left exactly as it is. Not loaded,
+		// not rewritten — a repeated Apply used to rewrite all 124 levels of Saboteur, 8 seconds
+		// and 124 changed .umap files in git for nothing, and it re-spawned every generated actor.
+		const int64* StoredLevelHash = Asset->ExportedLevelHashes.Find(Room.RoomId);
+		const FMazeRoomEntry* PreviousEntry = PreviousEntries.Find(Room.RoomId);
+
+		if (!bForceAll && StoredLevelHash && PreviousEntry
+			&& *StoredLevelHash == ComputeLevelHash(*Asset, Room, RoomHash, RoomPlacements,
+				Spawns, Library, LevelContext)
+			&& FPackageName::DoesPackageExist(LevelPackageName))
+		{
+			StagedRooms.Add(*PreviousEntry);
+			if (const TArray<FMazeTransitionPoint>* Points = PreviousTransitions.Find(Room.RoomId))
+			{
+				StagedTransitions.Append(*Points);
+			}
+
+			NewLevelHashes.Add(Room.RoomId, *StoredLevelHash);
+			++OutReport.ReusedLevels;
+			continue;
+		}
+
 		// ------------------------------------------------------- room meshes
 
 		TArray<UStaticMesh*> RoomMeshes;
 		int32 RoomTriangles = 0;
 
-		// Computed once and reused below: the hash walks the room's cells plus a one-cell skirt,
-		// and doing that twice per room would be the most expensive part of the export.
-		const int64 RoomHash = Asset->ComputeRoomHash(Room);
 		const int64* BakedHash = Asset->BakedRoomHashes.Find(Room.RoomId);
 		const bool bRoomBaked = BakedHash && *BakedHash == RoomHash;
 
@@ -343,9 +479,6 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 		}
 
 		// ------------------------------------------------------- room level
-
-		const FString LevelName = MazeExport::LevelAssetName(MazeName, Room.RoomId);
-		const FString LevelPackageName = LevelRoot / LevelName;
 
 		UPackage* LevelPackage = CreatePackage(*LevelPackageName);
 		LevelPackage->FullyLoad();
@@ -721,6 +854,15 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 		if (FEditorFileUtils::SaveLevel(RoomWorld->PersistentLevel, LevelFileName))
 		{
 			++OutReport.Levels;
+
+			// Taken after the objects, not before: an object that had no number was just given
+			// one, and the number is written into the level. Hashed with the old zero, the level
+			// would look out of date on every pass.
+			if (bRoomComplete)
+			{
+				NewLevelHashes.Add(Room.RoomId, ComputeLevelHash(*Asset, Room, RoomHash,
+					RoomPlacements, Spawns, Library, LevelContext));
+			}
 		}
 		else
 		{
@@ -781,6 +923,13 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 	Manifest->Rooms = MoveTemp(StagedRooms);
 	Manifest->Transitions = MoveTemp(StagedTransitions);
 
+	// Replaced whole: a room that produced no level this time must not keep a hash from the time
+	// it did.
+#if WITH_EDITOR
+	Asset->Modify();
+#endif
+	Asset->ExportedLevelHashes = MoveTemp(NewLevelHashes);
+
 	// After the manifest is right and before anything is reported. The retirement reads the
 	// new slicing off the asset and the old one off the snapshot, so it has to sit between
 	// the two — and it must not run at all if the export gave up, which the cancel above has
@@ -820,7 +969,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 	UE_LOG(LogMazeForge, Log, TEXT("Export: %s"), *OutReport.ToString());
 	UE_LOG(LogMazeForge, Log, TEXT("Levels in %s, manifest %s"), *LevelRoot, *ManifestPackageName);
 
-	return OutReport.Levels > 0;
+	return OutReport.Levels + OutReport.ReusedLevels > 0;
 }
 
 #undef LOCTEXT_NAMESPACE

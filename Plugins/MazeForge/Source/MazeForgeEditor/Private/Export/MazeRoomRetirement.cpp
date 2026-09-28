@@ -87,6 +87,7 @@ namespace
 		FString MeshRoot;
 		FString FolderRoot;
 		FString MeshSubFolder;
+		FString ObjectSubFolder;
 		bool bFolderPerRoom = true;
 		bool bSplitByBand = true;
 		int32 PerFlush = 16;
@@ -107,6 +108,8 @@ namespace
 				Settings ? Settings->OutlinerRootFolder : TEXT("Levels"), MazeName);
 			MeshSubFolder = MazeExport::CleanFolder(
 				Settings ? Settings->OutlinerMeshSubFolder : TEXT("MazeMeshes"));
+			ObjectSubFolder = MazeExport::CleanFolder(
+				Settings ? Settings->OutlinerObjectSubFolder : TEXT("MazeObjects"));
 			bFolderPerRoom = Settings ? Settings->bOutlinerFolderPerRoom : true;
 			bSplitByBand = Settings ? Settings->bSplitByDepthBand : true;
 
@@ -153,18 +156,80 @@ namespace
 			const FString RoomFolder = Folders.FolderRoot / LevelAsset;
 
 			// Deepest first: deleting a parent before its children leaves the folder container
-			// to decide what happens to them.
-			if (!Folders.MeshSubFolder.IsEmpty())
+			// to decide what happens to them. Both subfolders — the objects one was once missed
+			// here, and a room with objects kept its folder on the map after its level had gone.
+			for (const FString& Sub : { Folders.ObjectSubFolder, Folders.MeshSubFolder })
 			{
-				ActorFolders.DeleteFolder(*World, FFolder(FFolder::GetInvalidRootObject(),
-					FName(*(RoomFolder / Folders.MeshSubFolder))));
-				++InOutFoldersRemoved;
+				if (!Sub.IsEmpty())
+				{
+					ActorFolders.DeleteFolder(*World, FFolder(FFolder::GetInvalidRootObject(),
+						FName(*(RoomFolder / Sub))));
+					++InOutFoldersRemoved;
+				}
 			}
 
 			ActorFolders.DeleteFolder(*World, FFolder(FFolder::GetInvalidRootObject(),
 				FName(*RoomFolder)));
 			++InOutFoldersRemoved;
 		}
+	}
+
+	/**
+	 *  Removes the Outliner folders of room levels that are neither in the current slicing nor
+	 *  on the map. Returns how many.
+	 *
+	 *  TakeOffMap clears the folders of the rooms a pass retires. This catches what earlier passes
+	 *  left: rooms abolished before retirement existed, or before it knew about the objects
+	 *  subfolder. A folder whose level is still attached is never touched — its actors live in it.
+	 */
+	int32 SweepLeftoverFolders(UWorld* World, const FMazeFolders& Folders, const TSet<FString>& LiveLevels)
+	{
+		if (!World || !Folders.bFolderPerRoom || Folders.FolderRoot.IsEmpty())
+		{
+			return 0;
+		}
+
+		const FString Root = Folders.FolderRoot + TEXT("/");
+		const FString Prefix = Folders.LevelPrefix();
+
+		FActorFolders& ActorFolders = FActorFolders::Get();
+		TArray<FFolder> Doomed;
+
+		ActorFolders.ForEachFolder(*World, [&](const FFolder& Folder)
+		{
+			const FString Path = Folder.GetPath().ToString();
+			if (!Path.StartsWith(Root))
+			{
+				return true;
+			}
+
+			FString RoomLevel = Path.Mid(Root.Len());
+			int32 Slash = INDEX_NONE;
+			if (RoomLevel.FindChar(TEXT('/'), Slash))
+			{
+				RoomLevel.LeftInline(Slash);
+			}
+
+			if (RoomLevel.StartsWith(Prefix) && !LiveLevels.Contains(RoomLevel)
+				&& !FindStreamingLevelByPath(World, Folders.LevelRoot / RoomLevel))
+			{
+				Doomed.Add(Folder);
+			}
+			return true;
+		});
+
+		// Deepest first, for the same reason as in TakeOffMap.
+		Doomed.Sort([](const FFolder& A, const FFolder& B)
+		{
+			return A.GetPath().ToString().Len() > B.GetPath().ToString().Len();
+		});
+
+		for (const FFolder& Folder : Doomed)
+		{
+			ActorFolders.DeleteFolder(*World, Folder);
+		}
+
+		return Doomed.Num();
 	}
 
 	/** The manifest by its link, or where the build puts it when the link is lost. */
@@ -335,20 +400,23 @@ FMazeRetirementReport FMazeRoomRetirement::Retire(const UMazeGridAsset* Asset,
                                                   const TArray<FName>& PreviousRoomIds)
 {
 	FMazeRetirementReport Report;
-	if (!Asset || PreviousRoomIds.Num() == 0)
+	if (!Asset)
 	{
 		return Report;
 	}
 
+	const FMazeFolders Folders(*Asset);
+	UWorld* World = MazeExport::EditorWorld();
+
 	TSet<FName> StillProduced;
+	TSet<FString> LiveLevels;
 	StillProduced.Reserve(Asset->Rooms.Num());
+	LiveLevels.Reserve(Asset->Rooms.Num());
 	for (const FMazeRoomDesc& Room : Asset->Rooms)
 	{
 		StillProduced.Add(Room.RoomId);
+		LiveLevels.Add(MazeExport::LevelAssetName(Folders.MazeName, Room.RoomId));
 	}
-
-	const FMazeFolders Folders(*Asset);
-	UWorld* World = MazeExport::EditorWorld();
 
 	for (const FName& RoomId : PreviousRoomIds)
 	{
@@ -370,8 +438,62 @@ FMazeRetirementReport FMazeRoomRetirement::Retire(const UMazeGridAsset* Asset,
 		}
 	}
 
+	// What earlier builds left behind, after this pass's rooms so that those are counted where
+	// they belong. First any level of this maze still on the map although its room is gone —
+	// the manifest no longer lists it, so the loop above could not know it — then the folders.
+	if (World)
+	{
+		const FString LevelPath = Folders.LevelRoot + TEXT("/");
+		const FString Prefix = Folders.LevelPrefix();
+
+		TArray<FString> DeadAttached;
+		for (const ULevelStreaming* Streaming : World->GetStreamingLevels())
+		{
+			const FString Package = Streaming ? Streaming->GetWorldAssetPackageName() : FString();
+			if (!Package.StartsWith(LevelPath))
+			{
+				continue;
+			}
+
+			const FString LevelAsset = Package.Mid(LevelPath.Len());
+			if (LevelAsset.StartsWith(Prefix) && !LiveLevels.Contains(LevelAsset))
+			{
+				DeadAttached.Add(LevelAsset);
+			}
+		}
+
+		for (const FString& LevelAsset : DeadAttached)
+		{
+			int32 Folded = 0;
+			bool bHoldsDecor = false;
+			TakeOffMap(World, Folders, LevelAsset, Report.LeftoverLevels, Folded, bHoldsDecor);
+			Report.LeftoverFolders += Folded;
+			if (bHoldsDecor)
+			{
+				Report.RoomsHoldingDecor.Add(LevelAsset);
+			}
+		}
+	}
+
+	Report.LeftoverFolders += SweepLeftoverFolders(World, Folders, LiveLevels);
+	if (Report.LeftoverFolders > 0 || Report.LeftoverLevels > 0)
+	{
+		UE_LOG(LogMazeForge, Log,
+			TEXT("Retire: cleared what earlier builds left of rooms that no longer exist — "
+			     "%d level(s) taken off the map, %d Outliner folder(s) removed."),
+			Report.LeftoverLevels, Report.LeftoverFolders);
+	}
+
 	if (Report.IsEmpty())
 	{
+		// Leftover levels can hold decor too, and the designer is owed that news all the same.
+		if (Report.RoomsHoldingDecor.Num() > 0)
+		{
+			UE_LOG(LogMazeForge, Warning,
+				TEXT("Retire: level(s) taken off the map held actors this plugin did not place — %s. "
+				     "Their level files are untouched; open them to take the decor back."),
+				*FString::Join(Report.RoomsHoldingDecor, TEXT(", ")));
+		}
 		return Report;
 	}
 

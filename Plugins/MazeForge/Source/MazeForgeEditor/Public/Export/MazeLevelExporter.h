@@ -8,7 +8,16 @@ class UMazeGridAsset;
 struct FMazeExportReport
 {
 	int32 Rooms = 0;
+
+	/** Levels written by this export. */
 	int32 Levels = 0;
+
+	/**
+	 *  Levels left exactly as they were on disk: nothing they are made of has changed since they
+	 *  were written (see UMazeGridAsset::ExportedLevelHashes). Not rewritten, not even loaded.
+	 */
+	int32 ReusedLevels = 0;
+
 	int32 Meshes = 0;
 
 	/** Of those, taken ready-made from disk without rebuilding the geometry. */
@@ -103,5 +112,6 @@ struct FMazeExportReport
 class FMazeLevelExporter
 {
 public:
-	static bool ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& OutReport);
+	/** bForceAll rewrites every level, changed or not — the level side of Force Full Rebake. */
+	static bool ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& OutReport, bool bForceAll = false);
 };

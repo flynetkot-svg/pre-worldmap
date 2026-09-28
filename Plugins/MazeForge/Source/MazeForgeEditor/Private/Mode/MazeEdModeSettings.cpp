@@ -365,7 +365,7 @@ void UMazeEdModeSettings::ApplyChangesToCurrentMaze()
 
 	// 5. Levels, then back into the map.
 	FMazeExportReport ExportReport;
-	FMazeLevelExporter::ExportRooms(Asset, ExportReport);
+	FMazeLevelExporter::ExportRooms(Asset, ExportReport, bForceFullRebake);
 
 	const int32 Attached = FMazeLevelAttacher::AttachRooms(Asset);
 
@@ -373,10 +373,10 @@ void UMazeEdModeSettings::ApplyChangesToCurrentMaze()
 	OnSettingsChanged.Broadcast();
 
 	UE_LOG(LogMazeForge, Log,
-		TEXT("Apply changes: %d rooms, %d rebuilt, %d left alone, %d levels attached; "
-		     "in %.2f s. Save everything — Ctrl+Shift+S."),
+		TEXT("Apply changes: %d rooms, %d rebuilt, %d left alone, %d levels written, "
+		     "%d levels attached; in %.2f s. Save everything — Ctrl+Shift+S."),
 		Asset->Rooms.Num(), BakeReport.Rooms - BakeReport.SkippedRooms, BakeReport.SkippedRooms,
-		Attached, FPlatformTime::Seconds() - StartTime);
+		ExportReport.Levels, Attached, FPlatformTime::Seconds() - StartTime);
 }
 
 // -------------------------------------------------------------------- 1. generate
@@ -644,7 +644,7 @@ void UMazeEdModeSettings::ExportRoomsToLevels()
 	}
 
 	FMazeExportReport Report;
-	FMazeLevelExporter::ExportRooms(Asset, Report);
+	FMazeLevelExporter::ExportRooms(Asset, Report, bForceFullRebake);
 	RefreshStatus();
 }
 

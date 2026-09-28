@@ -14,6 +14,16 @@ struct FMazeRetirementReport
 	int32 Detached = 0;
 	int32 FoldersRemoved = 0;
 
+	/**
+	 *  Outliner folders of rooms that no longer exist, left behind by an earlier build and swept
+	 *  up now: a room retired before objects had their own subfolder, or before retirement
+	 *  existed at all. Counted apart from FoldersRemoved, which belongs to this pass's rooms.
+	 */
+	int32 LeftoverFolders = 0;
+
+	/** Levels of rooms that no longer exist still attached to the map by an earlier build. */
+	int32 LeftoverLevels = 0;
+
 	/** Retired rooms whose level still holds actors the export did not create. */
 	TArray<FString> RoomsHoldingDecor;
 
