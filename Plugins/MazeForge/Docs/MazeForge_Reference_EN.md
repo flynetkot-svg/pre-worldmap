@@ -58,7 +58,7 @@ One button, no fields.
 
 | Field | Default | Set it? | Meaning |
 |---|---|---|---|
-| `Tool` | `Cells` | optional | What the mouse draws: the mass of the maze, or objects. A tool rather than a modifier key, because cells go into the grid and objects into the spawn asset, and a key that silently changes which file a click edits is a good way to lose work. |
+| `Tool` | `Cells` | optional | What the mouse draws: the mass of the maze (`Cells`), objects (`Objects`) or the room layout (`Rooms`). A tool rather than a modifier key, because cells go into the grid and objects into the spawn asset, and a key that silently changes which file a click edits is a good way to lose work. |
 | `Paint Type` | `Solid` | optional | The cell type. Visible only when `Tool = Cells`. |
 | `Brush Size` | `1` | optional | The side of the brush square, 1–16. Visible only when `Tool = Cells`. |
 | `Paint Object Type` | empty | output | The selected object type. Set by clicking a swatch in the palette. Visible only when `Tool = Objects`. |
@@ -71,6 +71,15 @@ One button, no fields.
 |---|---|
 | **Fill Back Wall** | Fills the whole maze with back wall, using `Paint Variant`. A starting point, not a final look: the back wall is off by default, painting a 707×376 map by hand is hours, and a forgotten patch is a hole into the skybox that only shows up in game. |
 | **Clear Back Wall** | Removes all of it. |
+
+**The `Rooms` tool** — the room layout on top of the `Uniform Grid` slicer's lattice.
+
+| Action | What it does |
+|---|---|
+| drag with LMB | Every lattice cell in the rectangle becomes one room. A new merge absorbs the ones it overlaps; neighbours stay separate. |
+| `Shift` + drag | Split: remove the merges in the rectangle. |
+
+Merged rooms are hatched, each in its own colour — only in this tool and only until `Apply Changes`. The status line shows `merges N` and, while the layout is not applied, `N ROOMS AFTER APPLY`. A merged room is named after its bottom-left cell; if that name is new, the log lists the rooms that will be retired. Each drag is one transaction; `Ctrl+Z` undoes it whole.
 
 ### Objects
 
@@ -101,6 +110,12 @@ Below it is the object palette. With no library, the swatches are replaced by a 
 | `Inactive Layer Dim` | `0.45` | optional | How strongly the other layers are held back. `1` — not at all. |
 | `Grid Window Cells` | `48` | leave alone | Fallback size of the grid overlay window. Used only where the visible area cannot be computed. |
 
+| Button | What it does |
+|---|---|
+| **Show / Hide Room Levels** | Hide or show this maze's built levels. Handy while colouring rooms: you see the lattice and the hatching without geometry. The levels stay attached. |
+
+The room hatching is styled in the `Style` preset: `Room Hatch Spacing Cells` (density), `Room Hatch Crossed` (cross-hatch), `Room Hatch Opacity` (opacity of hatching and fill), `Room Merge Palette` (merge colours).
+
 ### Snapshot
 
 | Button | What it does |
@@ -114,7 +129,8 @@ The snapshot holds **only the grid**. Object placements are not in it.
 
 | Button | What it does |
 |---|---|
-| **Apply Changes** | The whole pipeline: snapshot the plane → grow the volume → slice into rooms → bake meshes → export levels and the manifest → attach the levels to the map. Then `Ctrl+Shift+S`. |
+| **Apply Changes** | The whole pipeline: snapshot the plane → grow the volume → slice into rooms → bake meshes → export levels and the manifest → attach the levels to the map. Rebuilds only what changed: meshes for rooms whose fingerprint moved, levels for rooms whose meshes, neighbours, objects or object types changed. Other levels are not loaded or rewritten. Rooms no longer in the slicing are taken off the map together with their Outliner folders; their files stay. Then `Ctrl+Shift+S`. |
+| **Move Stale Rooms To Deprecated** | Moves the levels and meshes of rooms no longer in the slicing into a `Deprecated` folder next to the live ones. Asks first, with the counts. In batches of `Rooms Per Flush`, unloading after each, cancellable. A separate button because moving assets in the engine is slow. Delete from `Deprecated` by hand, or bring them back. |
 | **Clear All Changes** | Erases the drawing. First detaches the levels, then clears the grid, the slicing and the bake state, then clears the manifest reference. A snapshot is taken automatically and `Restore` brings the drawing back — but not the levels; those come back from `Apply Changes`. The level and mesh assets are left on disk and are overwritten by the next build. |
 
 ### Edit
@@ -143,7 +159,8 @@ Collapsed by default. The same pipeline steps individually, for when you need ju
 
 | Field / button | What it does |
 |---|---|
-| `Force Full Rebake` | Rebuild every room's mesh instead of only the ones that changed. The bake normally compares each room against a hash of what it is made of. That comparison cannot see meshes on disk being deleted or edited by hand — this is the way out when the two have drifted apart. |
+| `Force Full Rebake` | Rebuild every room's meshes and rewrite every level, not only the changed ones. The build normally compares each room against a fingerprint of what it is made of. That comparison cannot see meshes or levels on disk being deleted or edited by hand — this is the way out when the two have drifted apart. **Not remembered between editor sessions**, and while it is on the build warns in the log. |
+| **Clear All Room Merges** | Reset the whole room colouring (`Slicer → Merges`). One transaction: `Ctrl+Z` brings the colouring back. Needed before changing `Room Size XZ` or `Origin XZ`: merges are stored as lattice cell numbers and would shift. |
 | **Build Depth Volume** | Grow the volume from the plane. |
 | **Flatten To Plane** | Flatten it back. Exactly reversible. |
 | **Slice Into Rooms** | Slice into rooms. |
@@ -186,6 +203,23 @@ The source of truth for the whole pipeline. There are deliberately no buttons in
 > **`Built Manifest (output)` is a trap.** It is the manifest written by the last export. The game does **not** take it from here. The runtime reads the `Manifest` field on the `Maze Streaming` component of whatever is watching the player, and that field is set by hand, once, and never follows this one.
 >
 > The row is greyed out like something the system manages for you, and reads as the authoritative answer — while the game goes on loading a manifest that has since been deleted.
+
+### The Uniform Grid slicer
+
+The `Slicer` field is an object with fields of its own; expand it with the arrow in Details.
+
+| Field | Default | Touch? | Meaning |
+|---|---|---|---|
+| `Room Size XZ` | `(32, 32)` | optional, **before colouring** | Lattice step in cells: X along the level, Y is height. Sensible from 24×12 to 32×32; smaller if you are going to merge. |
+| `Origin XZ` | `(0, 0)` | optional, **before colouring** | Lattice offset in cells. |
+| `Merges` | empty | through the `Rooms` tool | Fused lattice cells: `Min Index` / `Max Index` pairs, inclusive. Not typed by hand — drawn with the `Rooms` tool. |
+| `Discard Empty Rooms` | on | leave alone | A lattice cell without a single solid cell does not become a room. |
+
+Rooms are named `R_XXX_ZZZ` after their lattice cell; a merged one after its bottom-left cell.
+
+> **Copying the layout to a maze of the same geometry:** right-click the `Slicer` header → **Copy**, in the other asset → **Paste**. `Room Size XZ`, `Origin XZ` and every `Merges` entry come across. The condition: identical `Size XZ`, `Room Size XZ` and `Origin XZ`.
+
+> **Build fingerprints.** The asset keeps two numbers per room that Details does not show: what its meshes were built from and what its level was written from. `Apply Changes` uses them to decide what to rebuild. The grid itself is stored on disk as one compressed block: a maze the size of Saboteur is about 100 KB. Older assets load as before and switch to the new format on their first save.
 
 ---
 
@@ -658,7 +692,15 @@ Streaming: room R_000_000 (<package>) is up — the maze is ready, 0.62 s after 
 | `... does not fit — <reason>. Not spawned.` | the object has nowhere left to stand |
 | `the object at X.. Z.. is of type '...', which is not in the library` | a `Type Id` was renamed after the objects were placed |
 | `room ... holds N objects but no geometry` | no geometry means no level, and no level means nowhere to put the objects |
-| `UWorld::DestroyActor: World has no context!` | **not your problem.** A false positive from the engine about attached sublevels |
+| `UWorld::DestroyActor: World has no context!` | **not your problem.** A false positive from the engine about attached sublevels. Appears only for levels the build rewrites |
+| `Bake check: N hashes were stored for M rooms; A rooms had none, B had a different one.` | Why rooms are rebuilt. `had none` — no fingerprints yet (first build). `had a different one` for every room at once — something shared changed: `Build Settings`, the palette, the depth profile, the cell size |
+| `Bake trace R_...: stored ...; now identity ..., geometry ..., settings ..., final ...` | The first mismatched room broken down by stage. Compare two such lines: the first number that differs names what changed |
+| `Bake: Force Full Rebake is on, so every room was rebuilt` | The `Force Full Rebake` tick is on. Untick it after the run it was meant for |
+| `Export: ... levels written N, unchanged and left alone M` | `M` levels did not change and were not touched. Normal for a repeated build |
+| `Retire: rooms taken off the map N (...)` | After a re-slice, those rooms' levels were taken off the map and their folders removed. Files stay — `Move Stale Rooms To Deprecated` |
+| `Retire: cleared what earlier builds left of rooms that no longer exist` | Levels and folders left behind by older builds were removed. One-off |
+| `Deprecate: stale: levels N, meshes M; moved to Deprecated: ...` | The report of `Move Stale Rooms To Deprecated` |
+| `... is stored in the old grid format ... Save it once to shrink the file.` | The maze asset was saved in the old format. Save it — the file shrinks by a factor of hundreds |
 
 ### The placement generator
 

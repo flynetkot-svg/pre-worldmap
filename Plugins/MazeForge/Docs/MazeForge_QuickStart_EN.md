@@ -14,19 +14,20 @@ Anything not mentioned here, leave alone. The defaults are chosen for a first ma
 ## Contents
 
 1. [Three things to understand first](#1-three-things-to-understand-first)
-2. [Installation](#2-installation)
-3. [The map of assets](#3-the-map-of-assets)
-4. [Maze 1: draw it and build it](#4-maze-1-draw-it-and-build-it)
-5. [The character: hooking up streaming](#5-the-character-hooking-up-streaming)
-6. [Checking it in game](#6-checking-it-in-game)
-7. [Objects: the library and the brush](#7-objects-the-library-and-the-brush)
-8. [Objects: the generator and its rules](#8-objects-the-generator-and-its-rules)
-9. [Maze 2](#9-maze-2)
-10. [The transition between mazes](#10-the-transition-between-mazes)
-11. [The world graph and the world map](#11-the-world-graph-and-the-world-map)
-12. [Checking the transition](#12-checking-the-transition)
-13. [When it does not work](#13-when-it-does-not-work)
-14. [Cheat sheet](#14-cheat-sheet)
+2. [The cell grid and the room grid](#2-the-cell-grid-and-the-room-grid)
+3. [Installation](#3-installation)
+4. [The map of assets](#4-the-map-of-assets)
+5. [Maze 1: draw it and build it](#5-maze-1-draw-it-and-build-it)
+6. [The character: hooking up streaming](#6-the-character-hooking-up-streaming)
+7. [Checking it in game](#7-checking-it-in-game)
+8. [Objects: the library and the brush](#8-objects-the-library-and-the-brush)
+9. [Objects: the generator and its rules](#9-objects-the-generator-and-its-rules)
+10. [Maze 2](#10-maze-2)
+11. [The transition between mazes](#11-the-transition-between-mazes)
+12. [The world graph and the world map](#12-the-world-graph-and-the-world-map)
+13. [Checking the transition](#13-checking-the-transition)
+14. [When it does not work](#14-when-it-does-not-work)
+15. [Cheat sheet](#15-cheat-sheet)
 
 ---
 
@@ -50,7 +51,131 @@ World zero on Y is the centre of `Play`. Remember this: **the player exists only
 
 ---
 
-## 2. Installation
+## 2. The cell grid and the room grid
+
+A maze has two grids, one over the other. The **cell grid** is what it is made of. The **room grid** is the size of the pieces it streams in as. You paint the first and colour in the second. This section covers how they work, the order a level is built in, and how to avoid doing the same work twice.
+
+### 2.1 The cell grid
+
+A maze is a voxel grid. A cell is a cube of `Grid → Cell Size`, `100` units by default — one metre. `Grid → Size XZ` is the extent in cells: X along the level, Z up. Depth comes from the `Grid → Depth` profile: how many cells go into `Background`, `Play` and `Foreground`.
+
+Only occupied cells are stored; emptiness is the absence of a cell. You draw in a single plane, in the middle of the `Play` band. It is grown into a volume along the depth profile by `Apply Changes`.
+
+For a sense of scale:
+
+| Map | Size | Cells in the volume | Full `Apply` | `Apply` with no changes |
+|---|---|---|---|---|
+| tutorial | 256×128, depth 3/2/2 | tens of thousands | seconds | a second |
+| original Saboteur | 707×376, depth 9/2/9 | 1.9 million | ~40 s | ~5 s |
+
+On a large map check one field: `DA_MazeBuildSettings → Rooms Per Flush` must be above zero (`16` by default). The build unloads finished rooms in batches of that many. At zero it keeps everything loaded at once, and on a map the size of Saboteur runs out of GPU address space — the editor dies after the build has already succeeded.
+
+### 2.2 The room grid
+
+In game the maze is not loaded whole but in **rooms**. Each room is a level of its own with its own meshes, one per depth band. Only the rooms around the player are kept in memory — up to nine by default.
+
+The slicer, `Slicing → Slicer`, cuts the maze into rooms; by default it is `Uniform Grid`, which lays a lattice over the map:
+
+| Slicer field | Meaning |
+|---|---|
+| `Room Size XZ` | lattice step in cells: X along the level, Y is height |
+| `Origin XZ` | lattice offset in cells |
+| `Merges` | fused lattice cells, see 2.3 |
+| `Discard Empty Rooms` | a lattice cell without a single solid cell does not become a room |
+
+Every lattice cell is a room named `R_XXX_ZZZ`: the column and row of the lattice. The numbers have gaps — those are empty cells that were thrown away. That is expected.
+
+**Choosing the size.** A room should be roughly a screen, a little more. Large rooms drag a lot of unneeded geometry into memory and load noticeably. Small ones mean hundreds of levels, frequent loads and corridors chopped into pieces. A sensible range is 24×12 to 32×32 cells.
+
+The best approach is **a fine lattice plus merging**. Set a small step, then assemble rooms of the shape you want from its cells (2.3). On Saboteur a 24×12 lattice gave 697 cells, which colouring turned into 124 rooms.
+
+> **Set `Room Size XZ` and `Origin XZ` before colouring rooms, and leave them alone after.** Merges are stored as lattice cell numbers. Change the step or the offset and every merge silently lands somewhere else. If you do have to change them: `Advanced → Clear All Room Merges` first, then the field, then colour again.
+
+### 2.3 Merging rooms: the Rooms tool
+
+The lattice cuts the map into identical rectangles; a maze wants rooms that make sense — a lift shaft the full height, a long corridor as one strip, a hall in one piece. You get them by merging lattice cells.
+
+`Brush → Tool = Rooms`. Room frames get thicker.
+
+| Action | What it does |
+|---|---|
+| drag with LMB | every lattice cell in the rectangle becomes one room |
+| drag with **Shift** | split: remove the merges in the rectangle |
+
+Merged rooms are hatched, each in its own colour. The hatching shows only in `Rooms` mode and only until `Apply` — it is a draft of the layout, not the built result. The rectangle under the cursor while dragging is hatched the other way, so it stands out over what is already merged.
+
+The viewport status line always tells you what the mouse will do and keeps count: `merges N` is how many merges there are, and `N ROOMS AFTER APPLY` shows how many rooms you will get while the layout is not applied yet.
+
+Merge rules:
+
+- **Merges never overlap.** A new one absorbs every merge it touches. Neighbours that only share an edge stay separate rooms.
+- **A merged room is named after its bottom-left cell.** If that cell used to be empty, you get a room with a new name, and the old rooms inside it are retired. The log says so while you drag.
+- **Nothing is built until `Apply Changes`.**
+
+Also at hand:
+
+| Button | Where | What it does |
+|---|---|---|
+| **Show / Hide Room Levels** | `Display` | hide the built levels to see the lattice and the hatching without geometry |
+| **Clear All Room Merges** | `Advanced` | reset the whole colouring |
+
+How the hatching looks — spacing, cross-hatch, opacity, colours — is set in the style preset (`Display → Style`): `Room Hatch Spacing Cells`, `Room Hatch Crossed`, `Room Hatch Opacity`, `Room Merge Palette`.
+
+> **Why merge whatever spans several rooms.** A lift, a long ladder, a rope across a gap each live in exactly one level — the one their start is in. That level unloads and the object vanishes whole, with the player on it. Merge the cells it crosses into one room and the problem stops existing instead of being managed. A shaft is thin and nearly empty, so such a room costs almost nothing. Merging half the map, on the other hand, throws streaming away.
+
+### 2.4 How a level is built
+
+The order in which no work gets done twice:
+
+1. **The asset.** `Maze Name`, `Build Settings`, `Size XZ`, `Depth`, `Room Size XZ` — all before the first stroke (§5.2).
+2. **The plane.** `Generate Maze` or the brush, `Tool = Cells` (§5.4).
+3. **Rooms.** `Tool = Rooms`, colouring (2.3).
+4. **Build.** `Apply Changes`, then `Ctrl+Shift+S`.
+5. **Objects.** By hand (§8) and/or with the generator (§9), then `Apply Changes` again.
+6. **Edits.** `Edit → Change Current Maze`, the brush, `Edit → Apply Changes To Current Maze`.
+
+**`Apply Changes` rebuilds only what changed.** Every room keeps a fingerprint of what it is made of:
+
+- meshes are rebuilt only for rooms where something changed, plus the neighbour across the seam when the edit sits right at the boundary;
+- a level is rewritten only when what it holds changed: its meshes, its neighbours, the room's objects or their library types. The other levels are not loaded or touched at all — and neither is any decoration placed in them by hand.
+
+A second `Apply` in a row with no edits looks like this:
+
+```
+LogMazeForge: Export: rooms 124, levels written 0, unchanged and left alone 124, ...
+LogMazeForge: Apply changes: 124 rooms, 0 rebuilt, 124 left alone, 0 levels written, 0 levels attached; in 4.96 s.
+```
+
+And `git status` after it shows not a single modified `.umap`.
+
+**Re-slice, and the old rooms leave the stage.** If some rooms no longer exist after a new colouring, `Apply` takes their levels off the map and removes their Outliner folders:
+
+```
+LogMazeForge: Retire: rooms taken off the map 1 (detached 1, outliner folders 3). ... Rooms: R_027_025
+```
+
+Their level and mesh files stay where they are. Getting them out of sight is a separate button, **`Build → Move Stale Rooms To Deprecated`**: it moves everything stale into a `Deprecated` folder next to the live levels and meshes. Delete them from there by hand, or bring them back. It is a button of its own rather than part of `Apply` because moving assets in the engine is slow: on a hundred rooms it would add minutes to every build.
+
+**When to rebuild everything from scratch.** Fingerprints cannot see meshes or levels on disk being deleted or edited by hand. For that there is `Advanced → Force Full Rebake`: it rewrites every mesh and every level. The tick is not remembered between editor sessions, and while it is on the build reminds you in the log. Untick it after the run you ticked it for.
+
+### 2.5 Identical mazes: copy the room layout
+
+If a second maze repeats the first one's geometry, there is no need to colour its rooms again.
+
+1. Open the source asset and find the **`Slicer`** field in Details.
+2. Right-click the field's header → **Copy**.
+3. Open the target asset, same field → right-click → **Paste**.
+4. `Apply Changes` on the target.
+
+`Room Size XZ`, `Origin XZ` and every `Merges` entry come across in one go.
+
+There is one condition: both mazes have the same `Size XZ`, `Room Size XZ` and `Origin XZ`. Otherwise the merges land in the wrong places. Check after pasting: `merges N` in the status line should match the source, and the hatching in `Rooms` mode should fall in the same places.
+
+> **Need a full copy, drawing included? `Duplicate` the asset in the Content Browser and change `Maze Name` and `Spawns` straight away.** A duplicate with the same `Maze Name` writes to the same levels, the same meshes and the same manifest, and its first build overwrites the original.
+
+---
+
+## 3. Installation
 
 1. Copy the `MazeForge` folder into `<Project>/Plugins/`.
 2. Right-click the `.uproject` → **Generate Visual Studio project files**.
@@ -79,7 +204,7 @@ The third follows from the first two: rubbish now accumulates for longer. If `Me
 
 ---
 
-## 3. The map of assets
+## 4. The map of assets
 
 Seven kinds of asset. Do not be put off: five of them are created **once per project** and then left alone.
 
@@ -121,9 +246,9 @@ Create them bottom-up along the arrows. This document walks you through it.
 
 ---
 
-## 4. Maze 1: draw it and build it
+## 5. Maze 1: draw it and build it
 
-### 4.1 Two assets you create once
+### 5.1 Two assets you create once
 
 Both are shared across the project and neither needs filling in — only creating. Do it now so they are already to hand later.
 
@@ -133,9 +258,9 @@ Both are shared across the project and neither needs filling in — only creatin
 
 **Streaming rules.** Content Browser → right-click → **Miscellaneous → Data Asset → Maze Streaming Rules Asset.** Call it `DA_MazeStreamRules`.
 
-Change nothing inside this one either: both the rule set and the budgets are created by the constructor. You will need it in §5, when you hook up the character — but it is easier to make it now, alongside its neighbour.
+Change nothing inside this one either: both the rule set and the budgets are created by the constructor. You will need it in §6, when you hook up the character — but it is easier to make it now, alongside its neighbour.
 
-### 4.2 The maze itself
+### 5.2 The maze itself
 
 **Content Browser → right-click → MazeForge → Maze Grid.**
 
@@ -146,11 +271,11 @@ Call it `U_Maze_A`. Open it and fill in:
 | `Grid → Cell Size` | `(100, 100, 100)` | the standard UE cube |
 | `Grid → Size XZ` | `(256, 128)` | plenty for a first try |
 | `Grid → Depth` | `3 / 2 / 2` | Background / Play / Foreground |
-| `Grid → World Origin` | `(0, 0, 0)` | where the maze sits in the world, see §9 |
+| `Grid → World Origin` | `(0, 0, 0)` | where the maze sits in the world, see §10 |
 | `Build → Maze Name` | **`A`** | see below — this matters |
 | `Build → Build Settings` | `DA_MazeBuildSettings` | **required** |
 | `Generation → Generator` | `Random (Saboteur-style complex)` | or leave whatever it was created with |
-| `Slicing → Slicer` | `Uniform Grid`, `Room Size XZ = (32, 32)` | as is |
+| `Slicing → Slicer` | `Uniform Grid`, `Room Size XZ = (32, 32)` | as is for a first go; how to choose — §2.2 |
 
 Leave the rest alone.
 
@@ -158,7 +283,7 @@ Leave the rest alone.
 
 There are deliberately no buttons inside the asset: it holds parameters, and the work happens in the mode panel.
 
-### 4.3 The editing mode
+### 5.3 The editing mode
 
 Open any map (or make an empty one — it becomes your persistent level), then pick the **MazeForge** mode in the editor toolbar.
 
@@ -181,7 +306,7 @@ In `Target → Target Asset`, pick `U_Maze_A`.
 
 **Check.** The `Status` line below it stops saying `no target set` and shows something like `empty · cells 0 · rooms 0 · meshes: no rooms · snapshot: none`.
 
-### 4.4 Draw
+### 5.4 Draw
 
 Switch to the **Left** or **Right** view — the view menu is in the top-left corner of the viewport.
 
@@ -195,7 +320,7 @@ Generating is enough for a first pass.
 
 **Check.** `Status` now reads `plane · cells <a lot>`.
 
-### 4.5 Build
+### 5.5 Build
 
 The `Build` section → **Apply Changes**.
 
@@ -212,18 +337,18 @@ One button does six steps in a row:
 
 ```
 LogMazeForge: Mesh bake: rooms N ..., triangles ..., in 0.9 s.
-LogMazeForge: Export: rooms N, levels N, meshes ...
+LogMazeForge: Export: rooms N, levels written N, unchanged and left alone 0, meshes ...
 LogMazeForge: Levels in /Game/MazeForge/Maps/A, manifest /Game/MazeForge/Maps/A/DA_MazeWorldManifest_A
-LogMazeForge: Apply changes: N rooms, N rebuilt, 0 left alone, N levels attached; in 1.6 s. Save everything — Ctrl+Shift+S.
+LogMazeForge: Apply changes: N rooms, N rebuilt, 0 left alone, N levels written, N levels attached; in 1.6 s. Save everything — Ctrl+Shift+S.
 ```
 
 And the viewport now shows real geometry instead of preview cubes.
 
 **Save everything: Ctrl+Shift+S.** The export writes its assets to disk itself, but attaching the levels changes the open map, and that has to be saved by hand.
 
-> The log will carry lines reading `LogSpawn: Warning: UWorld::DestroyActor: World has no context!`, one per rebuilt actor. That is a false positive from the engine about attached sublevels. Nothing is broken; ignore them.
+> The log will carry lines reading `LogSpawn: Warning: UWorld::DestroyActor: World has no context!`, one per rebuilt actor in every **rewritten** level. That is a false positive from the engine about attached sublevels. Nothing is broken; ignore them. Levels that did not change are not touched by the build (§2.4), and produce none of these lines.
 
-### 4.6 Move the Player Start
+### 5.6 Move the Player Start
 
 The project template put `Player Start` wherever suited it — and you have just built over that spot. The character will end up inside the mass and either stick fast or fall through.
 
@@ -241,7 +366,7 @@ Set X and Z by eye: an empty cell, preferably with a floor under it.
 
 ---
 
-## 5. The character: hooking up streaming
+## 6. The character: hooking up streaming
 
 Rooms are streamed around an **observer** — an actor carrying the component. Normally the player character.
 
@@ -252,8 +377,8 @@ Rooms are streamed around an **observer** — an actor carrying the component. N
 | Field | Value |
 |---|---|
 | `Manifest` | `/Game/MazeForge/Maps/A/DA_MazeWorldManifest_A` |
-| `Rules` | `DA_MazeStreamRules` — the one you made in §4.1 |
-| `World Graph` | leave empty for now; §11 fills it in |
+| `Rules` | `DA_MazeStreamRules` — the one you made in §5.1 |
+| `World Graph` | leave empty for now; §12 fills it in |
 
 Leave the other fields alone. Their defaults work: the camera widens to the size of the maze, the screen fades on a transition, and the timings are set.
 
@@ -263,7 +388,7 @@ Leave the other fields alone. Their defaults work: the camera widens to the size
 
 ---
 
-## 6. Checking it in game
+## 7. Checking it in game
 
 Start PIE.
 
@@ -277,13 +402,13 @@ LogMazeForge: Camera bounds set from the manifest: X 0..25600
 
 Run around — rooms load and unload in silence. To watch it happen, type `MazeForge.DebugStreaming 1` in the console: the screen shows every room and how much the pool wants it loaded.
 
-If you get an `Error` instead, see §13 — all three cases are covered there.
+If you get an `Error` instead, see §14 — all three cases are covered there.
 
 ---
 
-## 7. Objects: the library and the brush
+## 8. Objects: the library and the brush
 
-### 7.1 The library
+### 8.1 The library
 
 **Miscellaneous → Data Asset → Maze Object Library.** Call it `DA_MazeObjectLibrary`. One per project.
 
@@ -305,9 +430,9 @@ Everything else stays at its default.
 
 > **`Footprint Cells` is the space the object needs empty, not the size of the mesh.** A two-by-three wardrobe is `(2, 3)`, and all six cells must be free. The mesh itself can be any size: the plugin does not measure it.
 
-> **Keep `Allowed Anchors` narrow.** Only `Floor` is set here, and not by accident: the `Free` anchor fits anywhere empty, which effectively turns the check off. A type carrying `Free` will bury the whole volume of air under a generation pass — see 8.3.
+> **Keep `Allowed Anchors` narrow.** Only `Floor` is set here, and not by accident: the `Free` anchor fits anywhere empty, which effectively turns the check off. A type carrying `Free` will bury the whole volume of air under a generation pass — see 9.3.
 
-### 7.2 The spawn asset
+### 8.2 The spawn asset
 
 **Miscellaneous → Data Asset → Maze Spawn Asset.** Call it `DA_MazeSpawn_A`. **One per maze.**
 
@@ -316,7 +441,7 @@ Everything else stays at its default.
 
 Then point the maze at it: `U_Maze_A → Build → Spawns`.
 
-### 7.3 Place some by hand
+### 8.3 Place some by hand
 
 In the mode panel: `Brush → Tool = Objects`. A palette appears in the `Objects` section — click the `Crate` swatch.
 
@@ -334,7 +459,7 @@ LMB places, Ctrl+LMB erases.
 
 **Check.** The `Objects` section reads `Placing: Crate | placed 3, of them never exported 3`.
 
-### 7.4 Build with objects
+### 8.4 Build with objects
 
 `Build → Apply Changes`.
 
@@ -348,13 +473,13 @@ The crates stand in the rooms, and in the Outliner they are under `Levels/A/L_A_
 
 ---
 
-## 8. Objects: the generator and its rules
+## 9. Objects: the generator and its rules
 
 You do not want to place a hundred crates by hand.
 
 **Miscellaneous → Data Asset → Maze Spawn Rules Asset.** Call it `DA_MazeSpawnRules`. One per project: how thickly crates are strewn is a decision about the game, and ten mazes should be able to share one answer.
 
-### 8.1 A first rule
+### 9.1 A first rule
 
 Add a rule to `Rules`:
 
@@ -365,7 +490,7 @@ Add a rule to `Rules`:
 | `Min Per Room` | `2` | at least two per room |
 | `Max Per Room` | `5` | at most five |
 | `Min Spacing Cells` | `2` | empty cells between objects |
-| `Band` | **`Background`** | the band — see 8.2, this is the decision that matters |
+| `Band` | **`Background`** | the band — see 9.2, this is the decision that matters |
 | `Rooms` | leave alone | the room filter; by default, every room |
 
 Leave `Seed` at `1337`. Two runs with the same seed produce the same arrangement — which is what lets you judge a layout, adjust the rules and judge it again.
@@ -381,7 +506,7 @@ LogMazeForge: Generate: objects 34 placed, 0 from the previous run removed; N ro
 
 Then `Apply Changes` to get the objects into the levels.
 
-### 8.2 Which band to put them in
+### 9.2 Which band to put them in
 
 The most important decision in a rule, and the most common mistake. The band decides not only where the object sits in depth but **whether it can stand there at all**.
 
@@ -401,7 +526,7 @@ The most important decision in a rule, and the most common mistake. The band dec
 
 > **The 2D map does not show depth.** Markers of every band are drawn in the same screen plane: you are looking along the Y axis, so a background barrel lands exactly where a play-band one would. You cannot judge the band from the picture — only from the `Band` field and the status line. A background object that looks sunk into a wall on the map is most likely standing correctly, just behind it.
 
-### 8.3 Setting the type up for a band
+### 9.3 Setting the type up for a band
 
 The rule itself knows nothing about anchors. Where an object may stand is a property of the **type** in the library, shared by every rule and every maze.
 
@@ -423,7 +548,7 @@ The other fields of the type worth checking before a first generation pass:
 - **`Snap To Anchor Surface`** — leave it on. It measures the actor and presses its edge against the surface, which is why a lamp pivoted at its base does not grow into the ceiling.
 - **`Category`** — what a category-targeted rule will catch it by.
 
-### 8.4 Several rules for one type
+### 9.4 Several rules for one type
 
 A type can have as many rules as you like, and that is the main way to get an arrangement worth looking at.
 
@@ -438,18 +563,156 @@ Rule 2:  Target=Type, TypeId=Barrel, Band=Play, 0..1 per room,
 
 One type in the library, two entirely different roles in the game. Densities separate the same way: thick clutter in the background, rare objects in the play plane.
 
-### 8.5 What the generator will not do
+### 9.5 What the generator will not do
 
 - **Running it again is safe.** It removes what the previous run scattered and touches nothing placed by hand. Objects you placed yourself are ground that is already taken.
 - **It never touches transition points**, even when a rule about the `System` category formally covers them. It says so in the log and skips them.
 - **`Clear Generated Objects`** removes only what was scattered. **`Clear All Objects`** removes everything, including what you placed by hand.
 - **The snapshot (`Snapshot → Save` / `Restore`) holds only the drawing.** Objects are not in it, and `Restore` will not bring them back.
 
+### 9.6 Recipes: putting an object where you want it
+
+Four things decide where an object ends up:
+
+| What | Where it is set | Decides |
+|---|---|---|
+| band | `Band` on the rule, `Paint Band` on the brush | where the object is in depth: background, play plane, foreground |
+| anchor | `Allowed Anchors` on the type | what it is held against: floor, ceiling, side wall, nothing |
+| snap | `Snap To Anchor Surface` on the type | makes the mesh touch the surface with its own edge, wherever its pivot is |
+| offset | `Offset` on the type | fine adjustment in units, first of all in depth (Y) |
+
+Below are five tested combinations. `Offset` values are given for the default depth profile `3/2/2` and a cell of 100; how to recompute them for your profile is explained on the spot.
+
+#### Barrels and crates on the floor, in the background
+
+The main case, and the one that started it all: a barrel standing on the floor behind the player and never in his way.
+
+| Library type | Value |
+|---|---|
+| `Category` | `Decor` |
+| `Allowed Anchors` | **`Floor`** only |
+| `Footprint Cells` | `(1, 1)`, a tall barrel `(1, 2)` |
+| `Snap To Anchor Surface` | **on** |
+| `Facing Mode` | `Random X` — so a row of barrels does not all face one way |
+
+| Rule or brush | Value |
+|---|---|
+| `Band` / `Paint Band` | **`Background`** |
+| `Min / Max Per Room` | `2..6` |
+| `Min Spacing Cells` | `1..2` |
+
+Why it stands true: the `Floor` anchor finds a solid cell under the bottom edge of the `Footprint Cells` rectangle and puts the origin on its top face. `Snap To Anchor Surface` measures the actor and lowers it until the bottom of the mesh rests on that face — wherever the mesh's pivot happens to be. The export report counts these in `snapped N`.
+
+The background is filled with the same mass as the play plane, so its floors are in the same places. The player never touches the background: collision exists only in `Play`.
+
+#### Pictures on the back wall
+
+**`Wall` is the wrong anchor here.** The `Wall` anchor is a side wall of a corridor: its left or right face along X, the end of it. The back wall is a separate layer in the far-most depth slice (`Paint Type = Back Wall`, or the `Fill Back Wall` button), and there is no anchor for it. A picture is hung in the air of the background band and moved back to the wall.
+
+| Library type | Value |
+|---|---|
+| `Allowed Anchors` | **`Free`** only |
+| `Footprint Cells` | the picture's size in cells, e.g. `(2, 2)` — that much must be empty in the corridor |
+| `Snap To Anchor Surface` | does not matter: `Free` has nothing to snap to |
+| `Fixed Rotation` | so the face looks at the camera (+Y); depends on how the mesh was modelled |
+| `Offset` | **Y — the shift to the back wall**, Z — height inside the cell |
+
+`Free` puts the origin in the centre of the rectangle, in the slice in the middle of the background band. From there to the front face of the back wall:
+
+```
+Offset.Y = −(⌊Background Cells / 2⌋ − Backdrop Cells − 0.5) × Cell Size.Y
+```
+
+| Depth profile (`Background Cells`, `Backdrop Cells`) | `Offset.Y` |
+|---|---|
+| `3`, `0` — the default | **−50** |
+| `9`, `0` — as in Saboteur | **−350** |
+| `9`, `1` | −250 |
+
+The formula brings the **pivot** to the wall. If the mesh's pivot is in the middle of the frame's thickness, add half the thickness back, or the frame will be half inside the wall.
+
+Place pictures **by hand**, `Paint Band = Background`. With the `Free` anchor the generator considers any empty cell suitable, including the middle of a tall shaft, and will hang pictures in mid-air. If you must use the generator: a narrow room filter, `Max Per Room = 1`, a large `Min Spacing Cells`.
+
+The plugin does not check whether there is a back wall behind the picture. Where none is painted — a window to the sky — the picture hangs in front of nothing.
+
+#### The foreground
+
+The `Foreground` band is empty by default: it is the "cutaway" the camera looks in through (see 9.2). With no mass there is no floor either — the `Floor` anchor finds nothing to rest on anywhere.
+
+| Library type | Value |
+|---|---|
+| `Allowed Anchors` | **`Free`** only |
+| `Footprint Cells` | the space it takes, e.g. a column `(1, 4)` |
+| `Offset.Z` | **−(Footprint.Y × CellSize.Z) / 2** — drops the pivot to the bottom of the rectangle; −200 for a `(1, 4)` column |
+
+Place **by hand**, `Paint Band = Foreground`, choosing the cell right above a floor of the play plane: that floor is drawn in the same view, on the same XZ. `Offset.Z` brings the object down from the centre of the rectangle to its bottom, i.e. to floor level — provided the mesh's pivot is at its base.
+
+What goes there: low and sparse things — beams, pipes, railings, columns, bushes along the edge. The foreground covers the player, so each such object is a spot where he cannot be seen. Better to turn off blocking collision on these blueprints: it will not stop the player — he lives at `Y = 0` — but it may get in the camera's way.
+
+The other way is to turn on `Grid → Depth → Fill → Fill Foreground`. Floors appear and `Floor` works, but the near plane turns solid and the cutaway is gone. Usually not worth it.
+
+#### Ceiling lamps
+
+| Library type | Value |
+|---|---|
+| `Allowed Anchors` | **`Ceiling`** only |
+| `Footprint Cells` | `(1, 1)` |
+| `Snap To Anchor Surface` | **on** — the top of the mesh meets the ceiling, wherever the pivot is |
+
+| Rule | Value |
+|---|---|
+| `Band` | **`Background`** |
+| `Min / Max Per Room` | `1..3` |
+| `Min Spacing Cells` | `4` or more |
+
+`Ceiling` takes a cell with mass above its top edge and hangs the object under it. A lamp pivoted at its base will not grow into the ceiling: that is exactly what `Snap` exists for.
+
+A lamp on a chain meant to hang lower: either make the chain part of the mesh and keep `Snap`, or turn `Snap` off and set a negative `Offset.Z`.
+
+The band is `Background`: light from a lamp in the background still lights the play plane, and the player cannot bump his head on it. Lamps go into `Play` only when the game uses them — say, they can be shot out. Then the blueprint must have no blocking collision, or every jump will hit a lamp.
+
+Light is expensive: keep few lamps per room and turn shadows off where you do not need them.
+
+#### Objects in the play band: health, ammo, obstacles
+
+| Library type | Value |
+|---|---|
+| `Category` | `Item` for pickups, `Decor` for obstacles |
+| `Allowed Anchors` | **`Floor`** only |
+| `Snap To Anchor Surface` | **on** |
+| `Offset.Y` | **−50** with `Play = 2` (see below) |
+
+| Rule or brush | Value |
+|---|---|
+| `Band` / `Paint Band` | **`Play`** |
+| `Min / Max Per Room` | few: `0..1` or `0..2` |
+| `Rooms` | for obstacles, a filter such as `Max Exits = 1` so they stand in dead ends (see 9.4) |
+
+**About `Offset.Y`.** An object in `Play` lands in the middle of the slice the maze is drawn in. With an even number of cells in `Play` (`2` by default) that slice is half a cell closer to the camera than the player's plane `Y = 0`: 50 units at a cell of 100. For an obstacle with thick collision it does not matter. For a pickup with a thin trigger it does: the player walks past without touching it. Give the type `Offset.Y = −CellSize.Y / 2`, or make the trigger deeper than one cell. With an odd `Play` no shift is needed.
+
+Collision decides the role:
+
+- **a pickup** — overlap only (`OverlapOnlyPawn`), no blocking: the player walks through and picks it up;
+- **an obstacle** — blocking collision, and `Footprint Cells` tall enough that the generator will not put it under a low ceiling.
+
+Everything in `Play` is something the player bumps into. If after generating he gets stuck at every step, decor ended up in `Play` (see 9.2). Transition points also go in `Play` only (§11.3).
+
+#### Summary
+
+| What | `Band` | `Allowed Anchors` | `Snap` | `Offset` | Place |
+|---|---|---|---|---|---|
+| barrels, crates | `Background` | `Floor` | on | — | generator |
+| pictures on the back wall | `Background` | `Free` | — | Y to the wall, see formula | by hand |
+| foreground | `Foreground` | `Free` | — | Z = −height/2 | by hand |
+| lamps | `Background` | `Ceiling` | on | Z for a chain | generator |
+| health, ammo | `Play` | `Floor` | on | Y = −50 with `Play = 2` | by hand or generator, few |
+| obstacles | `Play` | `Floor` | on | — | generator, in dead ends |
+
 ---
 
-## 9. Maze 2
+## 10. Maze 2
 
-Repeat §4 in full, changing three things:
+Repeat §5 in full, changing three things:
 
 | What | Value |
 |---|---|
@@ -459,6 +722,8 @@ Repeat §4 in full, changing three things:
 | `Grid → World Origin` | `(30000, 0, 0)` — move it along X |
 
 `DA_MazeBuildSettings`, `DA_MazeObjectLibrary` and `DA_MazeSpawnRules` are the same assets — they are shared.
+
+If the second maze repeats the first one's geometry, do not colour its rooms again — copy the layout, see §2.5.
 
 > **About `World Origin`.** It shifts the whole maze in the world. Nothing enforces giving mazes distinct coordinates: the old maze is fully unloaded before the new one arrives, so overlapping is not fatal. But distinct origins make "where am I" answerable, and let both be held for a moment if the transition wants a crossfade. Move the second one far enough that they cannot overlap: `256 × 100 = 25600` units wide, so `30000` leaves room.
 
@@ -478,13 +743,13 @@ If everything landed in the same files as `A`, you forgot `Maze Name`. Go back, 
 
 ---
 
-## 10. The transition between mazes
+## 11. The transition between mazes
 
 A transition is a **pair of points**: a `Gate` in one maze and an `Entry` in another. The door you walk into, and the place you appear.
 
 The key idea: **the door does not know where it leads.** It knows only which door it is — its own placement id — and asks the world graph. That is why one `BP_Door` serves every door in the game.
 
-### 10.1 Two library types
+### 11.1 Two library types
 
 Add two more entries to `DA_MazeObjectLibrary`. **Two for the whole game**, not a pair per doorway.
 
@@ -515,7 +780,7 @@ Add two more entries to `DA_MazeObjectLibrary`. **Two for the whole game**, not 
 
 > **Why `Gate`'s `Scale` is set here and not in the level.** The export owns every actor it makes: each `Apply Changes` destroys them and builds them again from the type. A size typed into the level survives exactly until the next `Apply` — and then vanishes silently. Set here, it comes back every time. The export will also notice a hand-stretched actor and say so in the log.
 
-### 10.2 The door blueprint
+### 11.2 The door blueprint
 
 Create `BP_Door` from `Actor`:
 
@@ -530,7 +795,7 @@ That is all. Three pins and no destination.
 
 The node works the rest out: it takes the door's number off the door's own component, finds the streaming component on whoever walked in, and asks the graph. And on every path where it can fail it says so in the log — precisely because the three-node version failed silently.
 
-### 10.3 Place the points
+### 11.3 Place the points
 
 **Both points are placed with `Paint Band = Play`.** Otherwise the transition will never work: the player exists only in the `Play` band, he cannot walk into a door in the background, and he would arrive on a plane he does not move in.
 
@@ -553,9 +818,9 @@ If you get a warning reading `is in the Background band, not Play` instead, eras
 
 ---
 
-## 11. The world graph and the world map
+## 12. The world graph and the world map
 
-### 11.1 The graph
+### 12.1 The graph
 
 **Miscellaneous → Data Asset → Maze World Graph.** Call it `DA_MazeWorld`. One per project.
 
@@ -572,7 +837,7 @@ Point two things at the graph:
 - the mode panel: `World → World Graph` → `DA_MazeWorld`;
 - the character blueprint: the `Maze Streaming` component → `World Graph` → `DA_MazeWorld`.
 
-### 11.2 The map
+### 12.2 The map
 
 Mode panel: `World` → **Open World Map**. The window opens already knowing your graph.
 
@@ -603,7 +868,7 @@ LogMazeForge: World map: DA_MazeWorldManifest_A gate 12 now leads to DA_MazeWorl
 
 And the status line reads `2 mazes, 2 links, 100%`.
 
-### 11.3 Attach both mazes to the map
+### 12.3 Attach both mazes to the map
 
 Mode panel: `World` → **Attach All Mazes In World Graph**.
 
@@ -615,7 +880,7 @@ This button builds, exports and re-bakes nothing — it only makes the open map 
 
 ---
 
-## 12. Checking the transition
+## 13. Checking the transition
 
 Start PIE in maze `A` and walk into the door.
 
@@ -631,19 +896,19 @@ LogMazeForge: Streaming: room R_000_000 (...) is up — the maze is ready, 0.62 
 
 On screen: the world fades out, and then you are in the other maze.
 
-Look at the `Y=` in the `entry at` line. If it is not zero — strictly, not the centre of the `Play` band — the arrival point is in the wrong band. Go back to §10.3.
+Look at the `Y=` in the `entry at` line. If it is not zero — strictly, not the centre of the `Play` band — the arrival point is in the wrong band. Go back to §11.3.
 
 **If the log says nothing at all**, the transition was never called. Look at the door blueprint: almost certainly the execution chain does not reach `Take Transition For`.
 
 ---
 
-## 13. When it does not work
+## 14. When it does not work
 
 The plugin talks. Nearly every failure names itself in the Output Log. Filter by `MazeForge` and read — the messages are written for a person and usually say what to do.
 
 ### The character is stuck or falls through at PIE start
 
-The one case the log says nothing about, because the plugin has nothing to do with it: `Player Start` is inside the geometry, or in the wrong depth band. See §4.6 — `Location → Y` must be `0`.
+The one case the log says nothing about, because the plugin has nothing to do with it: `Player Start` is inside the geometry, or in the wrong depth band. See §5.6 — `Location → Y` must be `0`.
 
 Standing still and immovable means he is in the mass. Falling through the floor means he is in `Background` or `Foreground`, where there is no collision.
 
@@ -680,13 +945,23 @@ Standing still and immovable means he is in the mass. Falling through the floor 
 | `had been resized by hand` | the size was stretched in the level; set `Scale` on the type |
 | `rules matched no room` | the room filter matched nothing |
 
+### Every `Apply Changes` rebuilds every room
+
+The log says `Mesh bake: rooms N (of them unchanged 0)` although you changed nothing, and next to it warns `Force Full Rebake is on`. Untick `Advanced → Force Full Rebake`: it rebuilds everything without looking at the fingerprints.
+
+If there is no such warning, look at the `Bake check` line: `N rooms had none` means there are no fingerprints (the first build after a plugin update or a clean), `N had a different one` means something shared by every room changed: `Build Settings`, the palette, the depth profile, the cell size.
+
+### Levels and folders of rooms that no longer exist
+
+After a re-slice their levels are taken off the map by the next `Apply Changes`, together with their Outliner folders — including ones left behind by older builds. The level and mesh files stay on disk: `Build → Move Stale Rooms To Deprecated` moves them into a `Deprecated` folder.
+
 ### Building the second maze made the first disappear
 
 At least one of them has no `Maze Name`. Give both a name and rebuild both. The old assets stay on disk as orphans — delete them by hand, once.
 
 ---
 
-## 14. Cheat sheet
+## 15. Cheat sheet
 
 **The order to create assets for a two-maze world:**
 
@@ -709,9 +984,11 @@ At least one of them has no `Maze Name`. Give both a name and rebuild both. The 
 - the mode panel → `World → World Graph` — for the `Attach All Mazes` button;
 - `Player Start` — move it into an empty cell with `Y = 0` after each maze is first built.
 
-**What `Apply Changes` does:** snapshot → volume → slicing → meshes → levels and manifest → attach to the map. Then `Ctrl+Shift+S`.
+**What `Apply Changes` does:** snapshot → volume → slicing → meshes → levels and manifest → attach to the map. Rebuilds and rewrites only what changed. Then `Ctrl+Shift+S`.
 
-**Keys in the mode:** `Q` lifts the layer dimming while held, `PgUp` / `PgDn` change the active depth slice, `Ctrl` + drag fills a rectangle, `Ctrl` + LMB erases.
+**Order of work on a level:** asset (`Room Size` right away) → plane → room colouring (`Tool = Rooms`) → `Apply` → objects → `Apply`.
+
+**Keys in the mode:** `Q` lifts the layer dimming while held, `PgUp` / `PgDn` change the active depth slice, `Ctrl` + drag fills a rectangle, `Ctrl` + LMB erases. With `Tool = Rooms`: drag merges rooms, `Shift` + drag splits them.
 
 **Keys on the world map:** `F` frames everything, `Delete` removes the selected link, `Escape` cancels a pending link.
 
