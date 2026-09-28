@@ -145,6 +145,18 @@ public:
 	TMap<FName, int64> BakedRoomHashes;
 
 	/**
+	 *  What each room's LEVEL was written from, one number per room — the level's counterpart of
+	 *  BakedRoomHashes, kept by FMazeLevelExporter.
+	 *
+	 *  A level holds more than the room's meshes: the neighbour list on its anchor, the objects
+	 *  standing in it and the library types they were built from. The mesh hash sees none of
+	 *  that, so it cannot say whether a level may be left alone; this one can. Unchanged rooms
+	 *  are not rewritten at all, which also leaves hand-placed decoration in them untouched.
+	 */
+	UPROPERTY()
+	TMap<FName, int64> ExportedLevelHashes;
+
+	/**
 	 *  Everything that decides what this room's mesh will look like, boiled down to one number.
 	 *
 	 *  Includes the room's own cells, the cells one step OUTSIDE its bounds (face culling asks

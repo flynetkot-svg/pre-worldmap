@@ -237,7 +237,7 @@ bool UMazeGridAsset::AreBakedMeshesCurrent() const
 
 void UMazeGridAsset::PruneBakedRoomHashes()
 {
-	if (BakedRoomHashes.Num() == 0)
+	if (BakedRoomHashes.Num() == 0 && ExportedLevelHashes.Num() == 0)
 	{
 		return;
 	}
@@ -252,6 +252,13 @@ void UMazeGridAsset::PruneBakedRoomHashes()
 	// A re-slice with a different room size renames every room. Left alone, the old entries would
 	// sit in the asset for ever, growing with each experiment.
 	for (auto It = BakedRoomHashes.CreateIterator(); It; ++It)
+	{
+		if (!Alive.Contains(It.Key()))
+		{
+			It.RemoveCurrent();
+		}
+	}
+	for (auto It = ExportedLevelHashes.CreateIterator(); It; ++It)
 	{
 		if (!Alive.Contains(It.Key()))
 		{
@@ -460,6 +467,7 @@ void UMazeGridAsset::ClearGrid()
 	Grid.Reset();
 	Rooms.Reset();
 	BakedRoomHashes.Reset();
+	ExportedLevelHashes.Reset();
 	NotifyGridChanged();
 }
 
