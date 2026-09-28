@@ -13,6 +13,26 @@ class UMazeSpawnAsset;
 class UMazeWorldManifest;
 
 /**
+ *  The running value of UMazeGridAsset::ComputeRoomHash after each of its stages. Two traces of
+ *  the same room taken at different times show which stage moved: the first value that differs
+ *  names the input that changed. Diagnostic only; nothing stores it.
+ */
+struct FMazeRoomHashTrace
+{
+	uint64 Identity = 0;   // id and bounds
+	uint64 Geometry = 0;   // cell size, origin, depth profile, borders
+	uint64 Settings = 0;   // build settings and palette
+	uint64 Final = 0;      // plus the cells
+	int32 Cells = 0;
+
+	FString ToString() const
+	{
+		return FString::Printf(TEXT("identity %016llx, geometry %016llx, settings %016llx, final %016llx, cells %d"),
+			Identity, Geometry, Settings, Final, Cells);
+	}
+};
+
+/**
  *  The maze asset — the source of truth for the whole pipeline.
  *
  *  It holds the grid, the generator instance, the slicer instance and the slicing result.
@@ -131,7 +151,7 @@ public:
 	 *  the neighbours, so a wall built in the room next door changes the faces along the seam),
 	 *  the geometry of the grid, the depth profile, the bake flags and the palette.
 	 */
-	int64 ComputeRoomHash(const FMazeRoomDesc& Room) const;
+	int64 ComputeRoomHash(const FMazeRoomDesc& Room, FMazeRoomHashTrace* OutTrace = nullptr) const;
 
 	/** Whether this room's baked meshes still match what the grid says it should be. */
 	bool IsRoomBaked(const FMazeRoomDesc& Room) const;

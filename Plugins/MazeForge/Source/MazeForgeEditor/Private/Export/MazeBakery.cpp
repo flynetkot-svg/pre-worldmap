@@ -70,6 +70,14 @@ bool FMazeBakery::BakeRooms(UMazeGridAsset* Asset, FMazeBakeReport& OutReport, b
 	// go, so that a cancelled bake cannot leave a room marked fresh when it was never rebuilt.
 	TMap<FName, int64> NewHashes;
 
+	// Why rooms rebake. A room with no stored hash and a room whose hash moved are different
+	// problems — the first is a lost record, the second a changed input — so they are counted
+	// apart, and the first mismatched room prints its hash stage by stage (FMazeRoomHashTrace).
+	int32 NoStoredHash = 0;
+	int32 HashMoved = 0;
+	bool bTraced = false;
+	const int32 StoredHashes = Asset->BakedRoomHashes.Num();
+
 	for (const FMazeRoomDesc& Room : Asset->Rooms)
 	{
 		if (SlowTask.ShouldCancel())
@@ -86,7 +94,26 @@ bool FMazeBakery::BakeRooms(UMazeGridAsset* Asset, FMazeBakeReport& OutReport, b
 		// rebuilding all 208. The hash covers the room's cells and one cell beyond its bounds —
 		// see UMazeGridAsset::ComputeRoomHash — so a change on the far side of a seam is caught
 		// by both rooms it affects.
-		const int64 Hash = Asset->ComputeRoomHash(Room);
+		FMazeRoomHashTrace Trace;
+		const int64 Hash = Asset->ComputeRoomHash(Room, &Trace);
+		const int64* Stored = Asset->BakedRoomHashes.Find(Room.RoomId);
+		if (!Stored)
+		{
+			++NoStoredHash;
+		}
+		else if (*Stored != Hash)
+		{
+			++HashMoved;
+		}
+
+		if (!bTraced && (!Stored || *Stored != Hash))
+		{
+			bTraced = true;
+			UE_LOG(LogMazeForge, Log, TEXT("Bake trace %s: stored %s; now %s."),
+				*Room.RoomId.ToString(),
+				Stored ? *FString::Printf(TEXT("%016llx"), static_cast<uint64>(*Stored)) : TEXT("none"),
+				*Trace.ToString());
+		}
 
 		// The hash is the whole test, deliberately. Checking the files on disk as well was tried
 		// and removed: a room whose every band is empty produces no file at all, so "no file" and
@@ -167,6 +194,17 @@ bool FMazeBakery::BakeRooms(UMazeGridAsset* Asset, FMazeBakeReport& OutReport, b
 		{
 			MazeExport::FlushBatch(PendingUnload, nullptr, OutReport.FlushedPackages);
 		}
+	}
+
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Bake check: %d hashes were stored for %d rooms; %d rooms had none, %d had a different one."),
+		StoredHashes, Asset->Rooms.Num(), NoStoredHash, HashMoved);
+
+	if (bForceAll)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Bake: Force Full Rebake is on, so every room was rebuilt regardless of its hash. ")
+			TEXT("Untick it under Advanced once the rebuild it was meant for is done."));
 	}
 
 	// The tail of the last batch.

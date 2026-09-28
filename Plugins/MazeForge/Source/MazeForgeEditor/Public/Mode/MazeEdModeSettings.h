@@ -235,8 +235,11 @@ public:
 	 *  The bake normally compares each room against a hash of what it is made of and leaves the
 	 *  unchanged ones alone. That comparison cannot see the meshes on disk being deleted or
 	 *  edited by hand, so this is the way out when the two have drifted apart.
+	 *
+	 *  Deliberately not remembered between editor sessions. As a config setting it outlived the
+	 *  one rebuild it was ticked for and quietly turned every later Apply into a full rebake.
 	 */
-	UPROPERTY(EditAnywhere, config, Category = "Advanced")
+	UPROPERTY(EditAnywhere, Category = "Advanced")
 	bool bForceFullRebake = false;
 
 	/**

@@ -88,7 +88,7 @@ namespace
 	}
 }
 
-int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room) const
+int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room, FMazeRoomHashTrace* OutTrace) const
 {
 	uint64 Hash = 0xCBF29CE484222325ULL;
 
@@ -98,6 +98,7 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room) const
 	Hash = Mix(Hash, static_cast<uint64>(Room.MinXZ.Y));
 	Hash = Mix(Hash, static_cast<uint64>(Room.MaxXZ.X));
 	Hash = Mix(Hash, static_cast<uint64>(Room.MaxXZ.Y));
+	if (OutTrace) { OutTrace->Identity = Hash; }
 
 	// --- the geometry every cell is placed by
 	Hash = MixFloat(Hash, Grid.CellSize.X);
@@ -121,6 +122,8 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room) const
 	Hash = Mix(Hash, static_cast<uint64>(
 		(Grid.Borders.bCloseLeft   ? 1 : 0) | (Grid.Borders.bCloseRight ? 2 : 0) |
 		(Grid.Borders.bCloseBottom ? 4 : 0) | (Grid.Borders.bCloseTop   ? 8 : 0)));
+
+	if (OutTrace) { OutTrace->Geometry = Hash; }
 
 	// --- how the mesh is assembled
 	if (const UMazeBuildSettings* Settings = BuildSettings.LoadSynchronous())
@@ -150,6 +153,8 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room) const
 		Hash = Mix(Hash, 0xD15AB1EDULL);
 	}
 
+	if (OutTrace) { OutTrace->Settings = Hash; }
+
 	// --- the cells themselves, plus a one-cell skirt
 	//
 	// The skirt is not caution, it is correctness. Face culling asks whether the neighbour is
@@ -174,6 +179,8 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room) const
 					continue;
 				}
 
+				if (OutTrace) { ++OutTrace->Cells; }
+
 				// The coordinate goes in as well: without it, moving a cell one step to the side
 				// would leave the multiset of cell types unchanged.
 				Hash = Mix(Hash, (static_cast<uint64>(static_cast<uint32>(X)) << 32)
@@ -185,6 +192,7 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room) const
 		}
 	}
 
+	if (OutTrace) { OutTrace->Final = Hash; }
 	return static_cast<int64>(Hash);
 }
 
