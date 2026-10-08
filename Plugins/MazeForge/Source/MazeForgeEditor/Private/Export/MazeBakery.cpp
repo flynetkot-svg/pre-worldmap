@@ -42,6 +42,11 @@ bool FMazeBakery::BakeRooms(UMazeGridAsset* Asset, FMazeBakeReport& OutReport, b
 		return false;
 	}
 
+	if (!MazeExport::EnsureOutputIsOurs(Asset, TEXT("Mesh bake")))
+	{
+		return false;
+	}
+
 	const UMazeBuildSettings* Settings = Asset->BuildSettings.LoadSynchronous();
 	const FString MazeName = Asset->GetSafeMazeName();
 	const FString MeshRoot = MazeExport::ScopedRoot(

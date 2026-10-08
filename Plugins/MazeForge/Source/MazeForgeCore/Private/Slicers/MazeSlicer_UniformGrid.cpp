@@ -2,6 +2,8 @@
 
 #include "Data/MazeGrid.h"
 #include "Data/MazeRoomDesc.h"
+#include "MazeForgeCore.h"
+#include "Misc/MessageDialog.h"
 
 #define LOCTEXT_NAMESPACE "MazeForge"
 
@@ -9,6 +11,69 @@ FText UMazeSlicer_UniformGrid::GetDisplayName() const
 {
 	return LOCTEXT("SlicerUniform", "Uniform Grid");
 }
+
+#if WITH_EDITOR
+void UMazeSlicer_UniformGrid::PreEditChange(FProperty* PropertyAboutToChange)
+{
+	Super::PreEditChange(PropertyAboutToChange);
+
+	// Taken once per edit, not on every tick of a dragged spin box: what matters is the value
+	// before the designer started, not the one a frame ago.
+	if (!bLatticeEditPending)
+	{
+		RoomSizeBeforeEdit = RoomSizeXZ;
+		OriginBeforeEdit = OriginXZ;
+		bLatticeEditPending = true;
+	}
+}
+
+void UMazeSlicer_UniformGrid::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent)
+{
+	if (PropertyChangedEvent.ChangeType == EPropertyChangeType::Interactive)
+	{
+		Super::PostEditChangeProperty(PropertyChangedEvent);
+		return; // still dragging; the question waits for the value the drag settles on
+	}
+
+	const bool bWasPending = bLatticeEditPending;
+	bLatticeEditPending = false;
+
+	const FName Member = PropertyChangedEvent.GetMemberPropertyName();
+	const bool bLatticeField = Member == GET_MEMBER_NAME_CHECKED(UMazeSlicer_UniformGrid, RoomSizeXZ)
+		|| Member == GET_MEMBER_NAME_CHECKED(UMazeSlicer_UniformGrid, OriginXZ);
+	const bool bLatticeMoved = RoomSizeXZ != RoomSizeBeforeEdit || OriginXZ != OriginBeforeEdit;
+
+	if (bWasPending && bLatticeField && bLatticeMoved && Merges.Num() > 0)
+	{
+		const EAppReturnType::Type Answer = FMessageDialog::Open(EAppMsgType::YesNo, FText::Format(
+			LOCTEXT("LatticeChangeWithMerges",
+				"This maze has {0} merged room(s).\n\n"
+				"Merges are stored as cells of the room lattice. With Room Size {1}x{2} and "
+				"Origin {3},{4} instead of {5}x{6} and {7},{8}, every one of them would land on "
+				"different cells of the map.\n\n"
+				"Yes: keep the new lattice and clear the merges — colour the rooms again.\n"
+				"No: keep the merges and put the old lattice back."),
+			Merges.Num(),
+			RoomSizeXZ.X, RoomSizeXZ.Y, OriginXZ.X, OriginXZ.Y,
+			RoomSizeBeforeEdit.X, RoomSizeBeforeEdit.Y, OriginBeforeEdit.X, OriginBeforeEdit.Y));
+
+		if (Answer == EAppReturnType::Yes)
+		{
+			UE_LOG(LogMazeForge, Log,
+				TEXT("Uniform Grid: lattice changed with %d merge(s) present; the merges were cleared."),
+				Merges.Num());
+			Merges.Reset();
+		}
+		else
+		{
+			RoomSizeXZ = RoomSizeBeforeEdit;
+			OriginXZ = OriginBeforeEdit;
+		}
+	}
+
+	Super::PostEditChangeProperty(PropertyChangedEvent);
+}
+#endif
 
 FIntPoint UMazeSlicer_UniformGrid::LatticeStep() const
 {

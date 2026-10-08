@@ -96,6 +96,23 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Manifest")
 	TArray<FMazeTransitionPoint> Transitions;
 
+#if WITH_EDITORONLY_DATA
+	/**
+	 *  The grid asset whose build wrote this manifest, as an object path.
+	 *
+	 *  Everything a maze produces is placed by its Maze Name, so two grid assets with the same
+	 *  name write into the same levels, meshes and manifest — a duplicated asset whose name was
+	 *  not changed silently overwrote the maze it was copied from. The build checks this field
+	 *  before writing anything and refuses when another, still existing maze of the same name
+	 *  owns the output.
+	 *
+	 *  A path string, not an object pointer: it must not drag the grid into a cook, and it must
+	 *  not count as a reference to it.
+	 */
+	UPROPERTY(VisibleAnywhere, Category = "Manifest")
+	FString BuiltFrom;
+#endif
+
 	const FMazeRoomEntry* FindRoom(FName RoomId) const;
 
 	/** The transition point with that placement id, or null. */

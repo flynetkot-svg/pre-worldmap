@@ -6,6 +6,7 @@
 #include "Data/MazeRoomDesc.h"
 #include "Engine/StaticMesh.h"
 #include "Export/MazeCollisionBuilder.h"
+#include "Export/MazeExportUtils.h"
 #include "Materials/Material.h"
 #include "MazeForgeCore.h"
 #include "MeshDescription.h"
@@ -289,6 +290,12 @@ bool FMazeMeshBuilder_Faces::Build(const FMazeBakeRequest& Request, FMazeBakeRes
 		return false;
 	}
 	Package->FullyLoad();
+
+	if (!MazeExport::ClearNameFor(Package, Request.AssetName, UStaticMesh::StaticClass()))
+	{
+		OutResult.bFailed = true;
+		return false;
+	}
 
 	// The asset may be left over from a previous bake. Creating a new object with the same name
 	// on top of it is not allowed — the engine trips a check. And recreating it is not needed

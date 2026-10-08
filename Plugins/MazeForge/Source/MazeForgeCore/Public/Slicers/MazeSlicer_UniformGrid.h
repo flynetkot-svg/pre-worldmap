@@ -132,6 +132,30 @@ public:
 
 	virtual FText GetDisplayName() const override;
 
+#if WITH_EDITOR
+	using Super::PreEditChange;
+	virtual void PreEditChange(FProperty* PropertyAboutToChange) override;
+
+	/**
+	 *  Guards the merges against a change of Room Size or Origin.
+	 *
+	 *  Merges are stored as lattice cell numbers. A new step or offset gives the same numbers
+	 *  different places on the map, so every merged room would silently land somewhere else —
+	 *  hours of colouring turned into nonsense by one typed digit. With merges present, the
+	 *  change asks: keep the new lattice and clear the merges, or keep the merges and put the
+	 *  old lattice back.
+	 */
+	virtual void PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
 protected:
 	virtual void Slice(const FMazeGrid& Grid, TArray<FMazeRoomDesc>& OutRooms) const override;
+
+private:
+#if WITH_EDITORONLY_DATA
+	/** The lattice as it was before the edit in progress. Bridges PreEditChange and PostEditChange. */
+	FIntPoint RoomSizeBeforeEdit = FIntPoint::ZeroValue;
+	FIntPoint OriginBeforeEdit = FIntPoint::ZeroValue;
+	bool bLatticeEditPending = false;
+#endif
 };

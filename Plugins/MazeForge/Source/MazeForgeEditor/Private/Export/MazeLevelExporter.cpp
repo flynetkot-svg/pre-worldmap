@@ -141,6 +141,11 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 		return false;
 	}
 
+	if (!MazeExport::EnsureOutputIsOurs(Asset, TEXT("Export")))
+	{
+		return false;
+	}
+
 	const UMazeBuildSettings* Settings = Asset->BuildSettings.LoadSynchronous();
 
 	// Every path and every name this build writes carries the maze's compartment. Empty name,
@@ -303,6 +308,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 	TMap<FName, int64> NewLevelHashes;
 
 	Manifest->WorldBounds = Grid.GetWorldBounds();
+	Manifest->BuiltFrom = Asset->GetPathName();
 	Manifest->PlayPlaneY = static_cast<float>(Grid.GetPlayPlaneY());
 
 	const EMazeDepthBand AllBands[3] = {
@@ -482,6 +488,12 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 
 		UPackage* LevelPackage = CreatePackage(*LevelPackageName);
 		LevelPackage->FullyLoad();
+
+		if (!MazeExport::ClearNameFor(LevelPackage, LevelName, UWorld::StaticClass()))
+		{
+			++OutReport.FailedPackages;
+			continue;
+		}
 
 		UWorld* RoomWorld = UWorld::FindWorldInPackage(LevelPackage);
 		if (!RoomWorld)
