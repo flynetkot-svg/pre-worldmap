@@ -9,6 +9,7 @@
 #include "Generators/MazeGeneratorBase.h"
 #include "Generators/MazeGenerator_Manual.h"
 #include "Export/MazeBakery.h"
+#include "Export/MazeExportUtils.h"
 #include "Export/MazeLevelAttacher.h"
 #include "Export/MazeLevelExporter.h"
 #include "Misc/MessageDialog.h"
@@ -344,6 +345,13 @@ void UMazeEdModeSettings::ApplyChangesToCurrentMaze()
 	if (Asset->Grid.NumCells() == 0)
 	{
 		UE_LOG(LogMazeForge, Warning, TEXT("Apply changes: the grid is empty. Nothing to build."));
+		return;
+	}
+
+	// Before the snapshot and the slicing too, not only before the bake: stopping halfway would
+	// leave this asset re-sliced for a build that never happens.
+	if (!MazeExport::EnsureOutputIsOurs(Asset, TEXT("Apply changes")))
+	{
 		return;
 	}
 

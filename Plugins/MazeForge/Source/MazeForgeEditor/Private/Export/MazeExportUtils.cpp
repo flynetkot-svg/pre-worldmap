@@ -1,12 +1,16 @@
 ﻿#include "Export/MazeExportUtils.h"
 
 #include "Assets/MazeBuildSettings.h"
+#include "Assets/MazeGridAsset.h"
+#include "Assets/MazeWorldManifest.h"
+#include "Misc/MessageDialog.h"
 #include "Editor.h"
 #include "Engine/World.h"
 #include "MazeForgeCore.h"
 #include "Misc/PackageName.h"
 #include "PackageTools.h"
 #include "RenderingThread.h"
+#include "UObject/ObjectRedirector.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
 
@@ -187,4 +191,83 @@ namespace MazeExport
 UWorld* MazeExport::EditorWorld()
 {
 	return GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+}
+
+bool MazeExport::ClearNameFor(UPackage* Package, const FString& ObjectName, const UClass* ExpectedClass)
+{
+	UObject* Existing = Package ? FindObject<UObject>(Package, *ObjectName) : nullptr;
+	if (!Existing || (ExpectedClass && Existing->IsA(ExpectedClass)))
+	{
+		return true;
+	}
+
+	if (UObjectRedirector* Redirector = Cast<UObjectRedirector>(Existing))
+	{
+		UE_LOG(LogMazeForge, Log,
+			TEXT("%s.%s was a redirector to %s, left by an earlier move. The rebuilt asset takes its place."),
+			*Package->GetName(), *ObjectName,
+			Redirector->DestinationObject ? *Redirector->DestinationObject->GetPathName() : TEXT("nothing"));
+
+		Redirector->ClearFlags(RF_Public | RF_Standalone);
+		Redirector->Rename(nullptr, GetTransientPackage(),
+			REN_DontCreateRedirectors | REN_NonTransactional | REN_DoNotDirty);
+		Redirector->MarkAsGarbage();
+		return true;
+	}
+
+	UE_LOG(LogMazeForge, Error,
+		TEXT("%s.%s is a %s, not a %s. Not overwritten — move or rename that asset, then build again."),
+		*Package->GetName(), *ObjectName, *Existing->GetClass()->GetName(),
+		ExpectedClass ? *ExpectedClass->GetName() : TEXT("map"));
+	return false;
+}
+
+bool MazeExport::EnsureOutputIsOurs(const UMazeGridAsset* Asset, const TCHAR* Action)
+{
+	if (!Asset)
+	{
+		return false;
+	}
+
+	const UMazeBuildSettings* Settings = Asset->BuildSettings.LoadSynchronous();
+	const FString MazeName = Asset->GetSafeMazeName();
+	const FString ManifestPackage = ManifestPackageName(Settings, MazeName);
+
+	if (!FPackageName::DoesPackageExist(ManifestPackage))
+	{
+		return true; // never built under this name
+	}
+
+	const FString ManifestPath = ManifestPackage + TEXT(".") + ManifestAssetName(Settings, MazeName);
+	const UMazeWorldManifest* Manifest = LoadObject<UMazeWorldManifest>(nullptr, *ManifestPath,
+		nullptr, LOAD_NoWarn | LOAD_Quiet);
+	if (!Manifest || Manifest->BuiltFrom.IsEmpty())
+	{
+		return true; // written before owners were recorded; the next export records this one
+	}
+
+	// Loaded rather than compared as text: a grid asset that was renamed or moved leaves a
+	// redirector behind, and following it lands on the very same asset — which is ours.
+	const UMazeGridAsset* Owner = Cast<UMazeGridAsset>(FSoftObjectPath(Manifest->BuiltFrom).TryLoad());
+	if (!Owner || Owner == Asset || Owner->GetSafeMazeName() != MazeName)
+	{
+		return true; // gone, ours, or renamed to another maze since
+	}
+
+	UE_LOG(LogMazeForge, Error,
+		TEXT("%s refused: Maze Name '%s' is already used by %s. Building %s would overwrite its "
+		     "levels, meshes and manifest. Give this maze a Maze Name of its own."),
+		Action, *MazeName, *Owner->GetPathName(), *Asset->GetName());
+
+	FMessageDialog::Open(EAppMsgType::Ok, FText::Format(
+		NSLOCTEXT("MazeForgeEditor", "MazeNameTaken",
+			"{0} stopped before writing anything.\n\n"
+			"Maze Name '{1}' is already used by\n{2}\n\n"
+			"Both mazes would write into the same levels, meshes and manifest, and this build "
+			"would overwrite the other maze.\n\n"
+			"Give {3} a Maze Name of its own (Build → Maze Name), then build again."),
+		FText::FromString(Action), FText::FromString(MazeName.IsEmpty() ? TEXT("(empty)") : MazeName),
+		FText::FromString(Owner->GetPathName()), FText::FromString(Asset->GetName())));
+
+	return false;
 }

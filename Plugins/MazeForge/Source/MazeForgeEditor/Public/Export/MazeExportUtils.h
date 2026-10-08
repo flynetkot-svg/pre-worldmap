@@ -4,6 +4,7 @@
 #include "Data/MazeTypes.h"
 
 class UMazeBuildSettings;
+class UMazeGridAsset;
 class UObject;
 class UPackage;
 class UWorld;
@@ -76,4 +77,30 @@ namespace MazeExport
 
 	/** The world the editor is showing, or null outside the editor. */
 	UWorld* EditorWorld();
+
+	/**
+	 *  Whether this maze may write its output: false when another grid asset with the same Maze
+	 *  Name already owns it (see UMazeWorldManifest::BuiltFrom).
+	 *
+	 *  On refusal it logs an error and shows a dialog naming the other asset — Action goes into
+	 *  both. Nothing is written by the caller after a refusal, so the other maze is untouched.
+	 *  A manifest with no owner recorded, or whose owner no longer exists or now has a different
+	 *  name, is free to take.
+	 */
+	bool EnsureOutputIsOurs(const UMazeGridAsset* Asset, const TCHAR* Action);
+
+	/**
+	 *  Clears the way for an asset named ObjectName in Package. Call after loading the package
+	 *  and before looking for the asset in it.
+	 *
+	 *  A redirector sitting under that name is moved aside: Move Stale Rooms To Deprecated, or
+	 *  any rename, leaves one at the old path while something still references it — the
+	 *  persistent level does, for a room level. When the room comes back under the same name,
+	 *  creating it on top of the redirector is a name clash the engine stops on with a check.
+	 *  The rebuilt asset takes the path over; the moved copy in Deprecated stays as it was.
+	 *
+	 *  Returns false only when something else that is not of ExpectedClass holds the name —
+	 *  the caller must then skip the asset rather than create it.
+	 */
+	bool ClearNameFor(UPackage* Package, const FString& ObjectName, const UClass* ExpectedClass);
 }
