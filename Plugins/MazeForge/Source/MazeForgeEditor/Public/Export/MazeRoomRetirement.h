@@ -53,7 +53,7 @@ struct FMazeDeprecationReport
 	double Seconds = 0.0;
 	bool bCancelled = false;
 
-	/** Moved levels that held actors the export did not create. */
+	/** Stale levels NOT moved because they hold actors the export did not create. */
 	TArray<FString> LevelsHoldingDecor;
 
 	FString ToString() const;
@@ -75,8 +75,8 @@ struct FMazeDeprecationReport
  *  tidy, and never as the price of seeing a change.
  *
  *  Nothing is ever deleted. Moved assets go into a Deprecated folder beside the live ones,
- *  so an accident costs a drag back rather than a rebuild, and hand-placed decor in a
- *  retired level travels with it instead of vanishing.
+ *  so an accident costs a drag back rather than a rebuild. A retired level still holding
+ *  hand-placed decor is not moved at all: Bind Decor To Rooms takes the decor out first.
  */
 class FMazeRoomRetirement
 {
@@ -104,6 +104,15 @@ public:
 	 *  plugin left behind. Returns false if the maze has no manifest to compare against.
 	 */
 	static bool CountStale(const UMazeGridAsset* Asset, int32& OutLevels, int32& OutMeshes);
+
+	/** The maze's manifest: by the link on the grid asset, or where the build puts it. */
+	static const UMazeWorldManifest* ResolveManifest(const UMazeGridAsset* Asset);
+
+	/**
+	 *  Package names of the room levels still in the maze's live folder that its manifest no
+	 *  longer lists — rooms a re-slicing abolished, not yet moved to Deprecated. Registry only.
+	 */
+	static TArray<FString> FindStaleLevels(const UMazeGridAsset* Asset);
 
 	/** Moves everything CountStale finds into Deprecated, in batches, with a progress bar. */
 	static FMazeDeprecationReport MoveStaleToDeprecated(const UMazeGridAsset* Asset);

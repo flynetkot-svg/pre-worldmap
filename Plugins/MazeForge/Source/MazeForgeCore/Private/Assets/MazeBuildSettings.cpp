@@ -59,6 +59,18 @@ UMazeBuildSettings::UMazeBuildSettings()
 
 	BackWallVisual.Variants = { Brick, Rock, Metal };
 	Palette.Add(EMazeCellType::BackWall, BackWallVisual);
+
+	// By path, so the runtime module does not drag in the headers of every class it names.
+	for (const TCHAR* Path : {
+		TEXT("/Script/Engine.PlayerStart"),
+		TEXT("/Script/Engine.DirectionalLight"),
+		TEXT("/Script/Engine.SkyLight"),
+		TEXT("/Script/Engine.SkyAtmosphere"),
+		TEXT("/Script/Engine.ExponentialHeightFog"),
+		TEXT("/Script/Engine.VolumetricCloud") })
+	{
+		DecorStayInMainClasses.Add(TSoftClassPtr<AActor>(FSoftObjectPath(Path)));
+	}
 }
 
 TSoftObjectPtr<UMaterialInterface> UMazeBuildSettings::ResolveMaterial(EMazeCellType Type,

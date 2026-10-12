@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Data/MazeTypes.h"
 
+class AActor;
 class UMazeBuildSettings;
 class UMazeGridAsset;
 class UObject;
@@ -77,6 +78,46 @@ namespace MazeExport
 
 	/** The world the editor is showing, or null outside the editor. */
 	UWorld* EditorWorld();
+
+	/**
+	 *  Where one maze keeps its output and how it arranges the Outliner, worked out once from
+	 *  the grid asset and its build settings.
+	 *
+	 *  Used by everything that comes after the export — retirement, the move to Deprecated,
+	 *  decor binding — and has to find the export's work by the export's rules.
+	 */
+	struct FMazeFolders
+	{
+		FString MazeName;
+		FString LevelRoot;
+		FString MeshRoot;
+		FString FolderRoot;
+		FString MeshSubFolder;
+		FString ObjectSubFolder;
+		FString DecorSubFolder;
+		FName GeneratedTag;
+		bool bFolderPerRoom = true;
+		bool bSplitByBand = true;
+		int32 PerFlush = 16;
+
+		explicit FMazeFolders(const UMazeGridAsset& Asset);
+
+		/** Prefix every room level of this maze starts with. "R_" keeps anything else out. */
+		FString LevelPrefix() const;
+		FString MeshPrefix() const;
+
+		/** The Outliner folder of one room level; the shared root when rooms get no folder each. */
+		FString RoomFolder(const FString& LevelAsset) const;
+	};
+
+	/**
+	 *  Whether an actor was put into a level by a hand rather than by the export.
+	 *
+	 *  The export tags what it spawns; of the rest, only what a designer could have placed
+	 *  counts — the housekeeping of every level (world settings, the builder brush, whatever
+	 *  the Outliner does not list) is nobody's decor.
+	 */
+	bool IsHandPlaced(const AActor* Actor, FName GeneratedTag);
 
 	/**
 	 *  Whether this maze may write its output: false when another grid asset with the same Maze

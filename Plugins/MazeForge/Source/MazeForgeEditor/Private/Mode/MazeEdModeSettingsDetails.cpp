@@ -476,6 +476,14 @@ void FMazeEdModeSettingsDetails::BuildEditRows(IDetailCategoryBuilder& Category)
 			"Closes the edit cycle: volume, rooms, meshes, levels, and the levels back into the map."),
 		&UMazeEdModeSettings::ApplyChangesToCurrentMaze);
 
+	AddButton(
+		LOCTEXT("BindDecorToRooms", "Bind Decor To Rooms"),
+		LOCTEXT("BindDecorToRoomsTip",
+			"Moves hand-placed actors standing inside the maze from the main level into the levels "
+			"of their rooms, and re-homes decor after the rooms were re-sliced. Asks first, then "
+			"saves the levels it touched."),
+		&UMazeEdModeSettings::BindDecorToRooms);
+
 	Category.AddCustomRow(LOCTEXT("EditHintFilter", "edit cycle hint"))
 	.WholeRowContent()
 	[

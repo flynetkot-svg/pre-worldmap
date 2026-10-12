@@ -9,6 +9,7 @@
 #include "Generators/MazeGeneratorBase.h"
 #include "Generators/MazeGenerator_Manual.h"
 #include "Export/MazeBakery.h"
+#include "Export/MazeDecorBinder.h"
 #include "Export/MazeExportUtils.h"
 #include "Export/MazeLevelAttacher.h"
 #include "Export/MazeLevelExporter.h"
@@ -323,6 +324,22 @@ void UMazeEdModeSettings::ChangeCurrentMaze()
 		TEXT("Change maze: %d levels detached, the grid is flat, drawing slice Y %d. "
 		     "Edit, then press Apply Changes To Current Maze."),
 		Detached, ActiveDepthSlice);
+}
+
+void UMazeEdModeSettings::BindDecorToRooms()
+{
+	UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Bind decor"));
+	if (!Asset)
+	{
+		return;
+	}
+
+	FMazeDecorBinder::Bind(Asset);
+
+	// Room levels may have been attached or shown to receive the decor, and the preview draws
+	// only what the levels do not.
+	RefreshStatus();
+	OnSettingsChanged.Broadcast();
 }
 
 void UMazeEdModeSettings::ApplyChanges()

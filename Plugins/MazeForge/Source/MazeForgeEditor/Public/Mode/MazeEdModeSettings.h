@@ -274,6 +274,9 @@ public:
 	/** Volume, rooms, meshes, levels — and the levels back into the map. */
 	void ApplyChangesToCurrentMaze();
 
+	/** Moves hand-placed decor into the levels of the rooms it stands in. See FMazeDecorBinder. */
+	void BindDecorToRooms();
+
 	/** True while the target's generator produces nothing on its own. */
 	bool IsGeneratorManual() const;
 
