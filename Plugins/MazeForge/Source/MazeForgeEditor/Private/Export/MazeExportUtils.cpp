@@ -4,7 +4,9 @@
 #include "Assets/MazeGridAsset.h"
 #include "Assets/MazeWorldManifest.h"
 #include "Misc/MessageDialog.h"
+#include "ActorEditorUtils.h"
 #include "Editor.h"
+#include "GameFramework/WorldSettings.h"
 #include "Engine/World.h"
 #include "MazeForgeCore.h"
 #include "Misc/PackageName.h"
@@ -270,4 +272,58 @@ bool MazeExport::EnsureOutputIsOurs(const UMazeGridAsset* Asset, const TCHAR* Ac
 		FText::FromString(Owner->GetPathName()), FText::FromString(Asset->GetName())));
 
 	return false;
+}
+
+MazeExport::FMazeFolders::FMazeFolders(const UMazeGridAsset& Asset)
+{
+	const UMazeBuildSettings* Settings = Asset.BuildSettings.LoadSynchronous();
+	MazeName = Asset.GetSafeMazeName();
+
+	LevelRoot = ScopedRoot(
+		Settings ? Settings->LevelPackageRoot : FString(TEXT("/Game/MazeForge/Maps")), MazeName);
+	MeshRoot = ScopedRoot(
+		Settings ? Settings->MeshPackageRoot : FString(TEXT("/Game/MazeForge/Meshes")), MazeName);
+
+	FolderRoot = OutlinerRoot(Settings ? Settings->OutlinerRootFolder : TEXT("Levels"), MazeName);
+	MeshSubFolder = CleanFolder(Settings ? Settings->OutlinerMeshSubFolder : TEXT("MazeMeshes"));
+	ObjectSubFolder = CleanFolder(Settings ? Settings->OutlinerObjectSubFolder : TEXT("MazeObjects"));
+	DecorSubFolder = CleanFolder(Settings ? Settings->OutlinerDecorSubFolder : TEXT("DesignerObjects"));
+	GeneratedTag = Settings ? Settings->GeneratedTag : FName(TEXT("MazeForge.Generated"));
+	bFolderPerRoom = Settings ? Settings->bOutlinerFolderPerRoom : true;
+	bSplitByBand = Settings ? Settings->bSplitByDepthBand : true;
+
+	// Never zero here, whatever the setting says. Zero means "do not flush" for the bake, where
+	// keeping things loaded can be a choice; what is moved here is never needed again, and
+	// keeping it loaded is exactly what took the device down.
+	PerFlush = (Settings && Settings->RoomsPerFlush > 0) ? Settings->RoomsPerFlush : 16;
+}
+
+FString MazeExport::FMazeFolders::LevelPrefix() const
+{
+	return MazeName.IsEmpty() ? FString(TEXT("L_R_")) : FString::Printf(TEXT("L_%s_R_"), *MazeName);
+}
+
+FString MazeExport::FMazeFolders::MeshPrefix() const
+{
+	return MazeName.IsEmpty() ? FString(TEXT("SM_R_")) : FString::Printf(TEXT("SM_%s_R_"), *MazeName);
+}
+
+FString MazeExport::FMazeFolders::RoomFolder(const FString& LevelAsset) const
+{
+	if (FolderRoot.IsEmpty())
+	{
+		return FString();
+	}
+
+	return bFolderPerRoom ? (FolderRoot / LevelAsset) : FolderRoot;
+}
+
+bool MazeExport::IsHandPlaced(const AActor* Actor, FName GeneratedTag)
+{
+	return Actor
+		&& !Actor->Tags.Contains(GeneratedTag)
+		&& Actor->IsEditable()
+		&& Actor->IsListedInSceneOutliner()
+		&& !Actor->IsA<AWorldSettings>()
+		&& !FActorEditorUtils::IsABuilderBrush(Actor);
 }

@@ -1,6 +1,5 @@
 ﻿#include "Export/MazeLevelExporter.h"
 
-#include "ActorEditorUtils.h"
 #include "Actors/MazeRoomAnchor.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "Assets/MazeBuildSettings.h"
@@ -18,7 +17,6 @@
 #include "Export/MazeRoomRetirement.h"
 #include "Export/MazeMeshBuilder_Faces.h"
 #include "FileHelpers.h"
-#include "GameFramework/WorldSettings.h"
 #include "Hash/CityHash.h"
 #include "MazeForgeCore.h"
 #include "Misc/PackageName.h"
@@ -545,10 +543,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 			{
 				ToRemove.Add(Existing);
 			}
-			else if (Existing->IsEditable()
-				&& Existing->IsListedInSceneOutliner()
-				&& !Existing->IsA<AWorldSettings>()
-				&& !FActorEditorUtils::IsABuilderBrush(Existing))
+			else if (MazeExport::IsHandPlaced(Existing, GeneratedTag))
 			{
 				// We only count what the designer could actually have placed. The housekeeping
 				// actors of a new level — WorldSettings, the builder brush and everything else

@@ -5,6 +5,7 @@
 #include "Data/MazeTypes.h"
 #include "MazeBuildSettings.generated.h"
 
+class AActor;
 class UStaticMesh;
 class UMaterialInterface;
 
@@ -172,6 +173,17 @@ public:
 	bool bOutlinerFolderPerRoom = true;
 
 	/**
+	 *  Sub-folder for hand-placed decor inside the room folder, filled by Bind Decor To Rooms.
+	 *
+	 *  The designer's own folders are kept beneath it: "Props/Barrels" in the main level
+	 *  becomes ".../L_<maze>_R_003_002/DesignerObjects/Props/Barrels".
+	 *
+	 *  Empty — the decor lands straight in the room folder.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Output|Outliner")
+	FString OutlinerDecorSubFolder = TEXT("DesignerObjects");
+
+	/**
 	 *  Tag put on every generated actor.
 	 *
 	 *  A re-export deletes ONLY the tagged actors and does not touch the designer's
@@ -214,6 +226,23 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bake")
 	bool bCullFarBoundaryFaces = false;
+
+	// ------------------------------------------------------------------- Decor binding
+
+	/**
+	 *  Actors of these classes stay in the persistent level when Bind Decor To Rooms runs, even
+	 *  standing inside a room.
+	 *
+	 *  The things a whole map shares rather than a room: the sun, the sky, the fog, where the
+	 *  player starts. Streamed out with a room, they would switch off with it. Subclasses count.
+	 *  Info actors (game mode, world settings and the like) are never moved, listed or not.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Decor")
+	TArray<TSoftClassPtr<AActor>> DecorStayInMainClasses;
+
+	/** Put this tag on a single actor to keep it in the persistent level when binding. */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Decor")
+	FName DecorStayInMainTag = TEXT("MazeForge.StayInMain");
 
 	const FMazeCellVisual* FindVisual(EMazeCellType Type) const { return Palette.Find(Type); }
 

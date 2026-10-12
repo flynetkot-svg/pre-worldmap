@@ -15,7 +15,6 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/World.h"
 #include "Export/MazeExportUtils.h"
-#include "GameFramework/WorldSettings.h"
 #include "HAL/PlatformTime.h"
 #include "MazeForgeCore.h"
 #include "Misc/PackageName.h"
@@ -52,11 +51,14 @@ namespace
 	/**
 	 *  Whether this level holds anything the export did not create.
 	 *
-	 *  The export tags everything it spawns with a UMazeObjectIdComponent, so an actor without
-	 *  one was put there by a hand. Worth knowing before the level goes anywhere: the actors go
-	 *  with it, and the designer is owed the news that his decor has just left the map.
+	 *  Worth knowing before the level goes anywhere: the actors go with it, and the designer is
+	 *  owed the news that his decor has just left the map.
+	 *
+	 *  By the tag, as the export itself decides what to keep. It used to look for the object id
+	 *  component, which only spawned objects carry — every room's meshes and anchor lack it, so
+	 *  every retired room was reported as holding decor.
 	 */
-	bool HoldsHandPlacedActors(const ULevel* Level)
+	bool HoldsHandPlacedActors(const ULevel* Level, FName GeneratedTag)
 	{
 		if (!Level)
 		{
@@ -65,12 +67,7 @@ namespace
 
 		for (const AActor* Actor : Level->Actors)
 		{
-			if (!Actor || Actor->IsA<AWorldSettings>())
-			{
-				continue;
-			}
-
-			if (!Actor->FindComponentByClass<UMazeObjectIdComponent>())
+			if (MazeExport::IsHandPlaced(Actor, GeneratedTag))
 			{
 				return true;
 			}
@@ -79,57 +76,7 @@ namespace
 		return false;
 	}
 
-	/** Everything the move needs to know about one maze, worked out once. */
-	struct FMazeFolders
-	{
-		FString MazeName;
-		FString LevelRoot;
-		FString MeshRoot;
-		FString FolderRoot;
-		FString MeshSubFolder;
-		FString ObjectSubFolder;
-		bool bFolderPerRoom = true;
-		bool bSplitByBand = true;
-		int32 PerFlush = 16;
-
-		explicit FMazeFolders(const UMazeGridAsset& Asset)
-		{
-			const UMazeBuildSettings* Settings = Asset.BuildSettings.LoadSynchronous();
-			MazeName = Asset.GetSafeMazeName();
-
-			LevelRoot = MazeExport::ScopedRoot(
-				Settings ? Settings->LevelPackageRoot : FString(TEXT("/Game/MazeForge/Maps")),
-				MazeName);
-			MeshRoot = MazeExport::ScopedRoot(
-				Settings ? Settings->MeshPackageRoot : FString(TEXT("/Game/MazeForge/Meshes")),
-				MazeName);
-
-			FolderRoot = MazeExport::OutlinerRoot(
-				Settings ? Settings->OutlinerRootFolder : TEXT("Levels"), MazeName);
-			MeshSubFolder = MazeExport::CleanFolder(
-				Settings ? Settings->OutlinerMeshSubFolder : TEXT("MazeMeshes"));
-			ObjectSubFolder = MazeExport::CleanFolder(
-				Settings ? Settings->OutlinerObjectSubFolder : TEXT("MazeObjects"));
-			bFolderPerRoom = Settings ? Settings->bOutlinerFolderPerRoom : true;
-			bSplitByBand = Settings ? Settings->bSplitByDepthBand : true;
-
-			// Never zero here, whatever the setting says. Zero means "do not flush" for the bake,
-			// where keeping things loaded can be a choice; the moved assets are never needed
-			// again, and keeping them loaded is exactly what took the device down.
-			PerFlush = (Settings && Settings->RoomsPerFlush > 0) ? Settings->RoomsPerFlush : 16;
-		}
-
-		/** Prefix every room level of this maze starts with. "R_" keeps anything else out. */
-		FString LevelPrefix() const
-		{
-			return MazeName.IsEmpty() ? FString(TEXT("L_R_")) : FString::Printf(TEXT("L_%s_R_"), *MazeName);
-		}
-
-		FString MeshPrefix() const
-		{
-			return MazeName.IsEmpty() ? FString(TEXT("SM_R_")) : FString::Printf(TEXT("SM_%s_R_"), *MazeName);
-		}
-	};
+	using MazeExport::FMazeFolders;
 
 	/** Detaches one room's level if it is on the map, and clears its Outliner folders. */
 	void TakeOffMap(UWorld* World, const FMazeFolders& Folders, const FString& LevelAsset,
@@ -145,7 +92,7 @@ namespace
 		{
 			if (ULevel* Loaded = Streaming->GetLoadedLevel())
 			{
-				bOutHoldsDecor = HoldsHandPlacedActors(Loaded);
+				bOutHoldsDecor = HoldsHandPlacedActors(Loaded, Folders.GeneratedTag);
 				InOutDetached += UEditorLevelUtils::RemoveLevelFromWorld(Loaded) ? 1 : 0;
 			}
 		}
@@ -158,7 +105,7 @@ namespace
 			// Deepest first: deleting a parent before its children leaves the folder container
 			// to decide what happens to them. Both subfolders — the objects one was once missed
 			// here, and a room with objects kept its folder on the map after its level had gone.
-			for (const FString& Sub : { Folders.ObjectSubFolder, Folders.MeshSubFolder })
+			for (const FString& Sub : { Folders.DecorSubFolder, Folders.ObjectSubFolder, Folders.MeshSubFolder })
 			{
 				if (!Sub.IsEmpty())
 				{
@@ -233,7 +180,7 @@ namespace
 	}
 
 	/** The manifest by its link, or where the build puts it when the link is lost. */
-	const UMazeWorldManifest* ResolveManifest(const UMazeGridAsset& Asset)
+	const UMazeWorldManifest* FindManifest(const UMazeGridAsset& Asset)
 	{
 		if (const UMazeWorldManifest* Linked = Asset.Manifest.LoadSynchronous())
 		{
@@ -491,7 +438,7 @@ FMazeRetirementReport FMazeRoomRetirement::Retire(const UMazeGridAsset* Asset,
 		{
 			UE_LOG(LogMazeForge, Warning,
 				TEXT("Retire: level(s) taken off the map held actors this plugin did not place — %s. "
-				     "Their level files are untouched; open them to take the decor back."),
+				     "Their level files are untouched; Bind Decor To Rooms takes the decor back."),
 				*FString::Join(Report.RoomsHoldingDecor, TEXT(", ")));
 		}
 		return Report;
@@ -505,7 +452,7 @@ FMazeRetirementReport FMazeRoomRetirement::Retire(const UMazeGridAsset* Asset,
 		UE_LOG(LogMazeForge, Warning,
 			TEXT("Retire: %d level(s) taken off the map held actors this plugin did not place — "
 			     "%s. That decor is no longer in the map. Its level is untouched in the live "
-			     "folder; open it to take the decor back."),
+			     "folder; press Bind Decor To Rooms to move it into the rooms that replaced it."),
 			Report.RoomsHoldingDecor.Num(), *FString::Join(Report.RoomsHoldingDecor, TEXT(", ")));
 	}
 
@@ -514,12 +461,41 @@ FMazeRetirementReport FMazeRoomRetirement::Retire(const UMazeGridAsset* Asset,
 
 // ============================================================================ on request
 
+const UMazeWorldManifest* FMazeRoomRetirement::ResolveManifest(const UMazeGridAsset* Asset)
+{
+	return Asset ? FindManifest(*Asset) : nullptr;
+}
+
+TArray<FString> FMazeRoomRetirement::FindStaleLevels(const UMazeGridAsset* Asset)
+{
+	TArray<FString> Levels;
+
+	const UMazeWorldManifest* Manifest = ResolveManifest(Asset);
+	if (!Manifest)
+	{
+		return Levels;
+	}
+
+	for (const FStaleUnit& Unit : FindStale(FMazeFolders(*Asset), *Manifest))
+	{
+		for (const FAssetData& Data : Unit.Assets)
+		{
+			if (Data.AssetClassPath == UWorld::StaticClass()->GetClassPathName())
+			{
+				Levels.Add(Data.PackageName.ToString());
+			}
+		}
+	}
+
+	return Levels;
+}
+
 bool FMazeRoomRetirement::CountStale(const UMazeGridAsset* Asset, int32& OutLevels, int32& OutMeshes)
 {
 	OutLevels = 0;
 	OutMeshes = 0;
 
-	const UMazeWorldManifest* Manifest = Asset ? ResolveManifest(*Asset) : nullptr;
+	const UMazeWorldManifest* Manifest = Asset ? FindManifest(*Asset) : nullptr;
 	if (!Manifest)
 	{
 		return false;
@@ -539,7 +515,7 @@ FMazeDeprecationReport FMazeRoomRetirement::MoveStaleToDeprecated(const UMazeGri
 {
 	FMazeDeprecationReport Report;
 
-	const UMazeWorldManifest* Manifest = Asset ? ResolveManifest(*Asset) : nullptr;
+	const UMazeWorldManifest* Manifest = Asset ? FindManifest(*Asset) : nullptr;
 	if (!Manifest)
 	{
 		UE_LOG(LogMazeForge, Warning,
@@ -626,6 +602,19 @@ FMazeDeprecationReport FMazeRoomRetirement::MoveStaleToDeprecated(const UMazeGri
 
 		for (const FStaleUnit* Unit : Batches[BatchIndex])
 		{
+			// A level still holding decor stays, and its meshes with it: in Deprecated nothing
+			// would find that decor again, while here Bind Decor To Rooms takes it out.
+			const FAssetData* HeldBack = Unit->Assets.FindByPredicate([&Folders](const FAssetData& Data)
+			{
+				const UWorld* AsWorld = Cast<UWorld>(Data.GetAsset());
+				return AsWorld && HoldsHandPlacedActors(AsWorld->PersistentLevel, Folders.GeneratedTag);
+			});
+			if (HeldBack)
+			{
+				Report.LevelsHoldingDecor.Add(HeldBack->AssetName.ToString());
+				continue;
+			}
+
 			for (const FAssetData& Data : Unit->Assets)
 			{
 				UObject* Object = Data.GetAsset();
@@ -633,14 +622,6 @@ FMazeDeprecationReport FMazeRoomRetirement::MoveStaleToDeprecated(const UMazeGri
 				{
 					++Report.Failed;
 					continue;
-				}
-
-				if (UWorld* AsWorld = Cast<UWorld>(Object))
-				{
-					if (HoldsHandPlacedActors(AsWorld->PersistentLevel))
-					{
-						Report.LevelsHoldingDecor.Add(Data.AssetName.ToString());
-					}
 				}
 
 				const FString FromPath = FPackageName::GetLongPackagePath(Data.PackageName.ToString());
@@ -708,10 +689,10 @@ FMazeDeprecationReport FMazeRoomRetirement::MoveStaleToDeprecated(const UMazeGri
 	if (Report.LevelsHoldingDecor.Num() > 0)
 	{
 		UE_LOG(LogMazeForge, Warning,
-			TEXT("Deprecate: %d moved level(s) held actors this plugin did not place — %s. That "
-			     "decor is in %s now, with its level. Open the level there to take it back."),
-			Report.LevelsHoldingDecor.Num(), *FString::Join(Report.LevelsHoldingDecor, TEXT(", ")),
-			DeprecatedFolder);
+			TEXT("Deprecate: %d level(s) were left where they are, with their meshes, because they "
+			     "hold hand-placed decor — %s. Press Bind Decor To Rooms to move it into the rooms "
+			     "that replaced them, then Move Stale again."),
+			Report.LevelsHoldingDecor.Num(), *FString::Join(Report.LevelsHoldingDecor, TEXT(", ")));
 	}
 
 	return Report;
