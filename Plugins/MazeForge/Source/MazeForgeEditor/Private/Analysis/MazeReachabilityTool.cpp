@@ -28,7 +28,10 @@ namespace
 		In.Params.AgentHeightCells = Asset.Generator ? FMath::Max(1, Asset.Generator->AgentHeightCells) : 2;
 
 		const double CellZ = FMath::Max(1.0, Asset.Grid.CellSize.Z);
+		const double CellX = FMath::Max(1.0, Asset.Grid.CellSize.X);
+		In.Params.bGravity = Settings.bRequireLadders;
 		In.Params.ClimbUpCells = FMath::FloorToInt(FMath::Max(Settings.StepUpCm, Settings.JumpHeightCm) / CellZ);
+		In.Params.AgentWidthCells = FMath::Max(1, FMath::CeilToInt(Settings.AgentWidthCm / CellX));
 
 		const UMazeSpawnAsset* Spawns = Asset.Spawns.LoadSynchronous();
 		const UMazeObjectLibrary* Library = Spawns ? Spawns->Library.LoadSynchronous() : nullptr;
@@ -166,10 +169,14 @@ void MazeReachabilityTool::Check(UMazeEdModeSettings& Settings)
 			Islands.Num(), Fine, Unreachable, Partial);
 
 	UE_LOG(LogMazeForge, Log,
-		TEXT("Reachability %s, player %d cells tall, up %d cell(s) without a ladder, %d climbable(s): "
+		TEXT("Reachability %s, player %d x %d cells, %s, %d climbable(s): "
 		     "%d of %d places to stand reached, %d unreachable piece(s). Rooms: %d fine, %d unreachable, "
 		     "%d reached in part.%s"),
-		*From, In.Params.AgentHeightCells, In.Params.ClimbUpCells, In.Params.Climbables.Num(),
+		*From, In.Params.AgentWidthCells, In.Params.AgentHeightCells,
+		In.Params.bGravity
+			? *FString::Printf(TEXT("gravity on, up %d cell(s) without a ladder"), In.Params.ClimbUpCells)
+			: TEXT("no gravity (any shaft counts as a way up)"),
+		In.Params.Climbables.Num(),
 		Result.NumReachedStandable, Result.NumStandable, Islands.Num(), Fine, Unreachable, Partial,
 		UnreachableNames.Num() > 0 ? *(TEXT(" Unreachable: ") + FString::Join(UnreachableNames, TEXT(", "))) : TEXT(""));
 
@@ -190,7 +197,11 @@ void MazeReachabilityTool::Fix(UMazeEdModeSettings& Settings)
 
 	UMazeSpawnAsset* Spawns = Asset->Spawns.LoadSynchronous();
 	FIntPoint LadderFootprint(1, 1);
-	const FName Ladder = Spawns ? ResolveLadder(Settings, *Asset, LadderFootprint) : NAME_None;
+
+	// Without gravity a shaft is a way up by itself: nothing is stood in it.
+	const FName Ladder = (Spawns && Settings.bRequireLadders)
+		? ResolveLadder(Settings, *Asset, LadderFootprint) : NAME_None;
+	const bool bAllowUp = !Settings.bRequireLadders || !Ladder.IsNone();
 
 	FInputs In = GatherInputs(Settings, *Asset);
 
@@ -226,7 +237,8 @@ void MazeReachabilityTool::Fix(UMazeEdModeSettings& Settings)
 
 			MazeReachability::FConnection Connection;
 			const bool bOk = MazeReachability::ConnectIsland(Asset->Grid, Result, Island,
-				In.Params.AgentHeightCells, Settings.FixShaftWidthCells, !Ladder.IsNone(), Connection);
+				In.Params.AgentHeightCells, In.Params.AgentWidthCells, Settings.FixShaftWidthCells,
+				bAllowUp, Connection);
 
 			if (!bOk)
 			{
@@ -234,12 +246,12 @@ void MazeReachabilityTool::Fix(UMazeEdModeSettings& Settings)
 				{
 					Skipped.Add(Cell.Y * Result.Size.X + Cell.X);
 				}
-				(Ladder.IsNone() ? LeftUp : LeftOther) += 1;
+				(bAllowUp ? LeftOther : LeftUp) += 1;
 				continue;
 			}
 
 			Carved += Connection.CarvedCells;
-			if (Connection.bNeedsLadder)
+			if (Connection.bNeedsLadder && !Ladder.IsNone())
 			{
 				// Stacked pieces of the one ladder type, as many as the climb is tall. Free
 				// anchor: only the lowest has a floor under it.
@@ -283,9 +295,9 @@ void MazeReachabilityTool::Fix(UMazeEdModeSettings& Settings)
 		Joined, Carved, NewLadders.Num(),
 		LeftUp + LeftOther > 0
 			? *FString::Printf(TEXT("; %d piece(s) left%s"), LeftUp + LeftOther,
-				Ladder.IsNone() ? TEXT(" — reaching them means climbing, and there is no ladder type: set "
-				                       "Fix Ladder Type, or Ladder Type on the Classic generator")
-				                : TEXT(""))
+				LeftUp > 0 ? TEXT(" — reaching some means climbing, and there is no ladder type: set "
+				                  "Fix Ladder Type, or Ladder Type on the Classic generator")
+				           : TEXT(""))
 			: TEXT(""));
 
 	Check(Settings);

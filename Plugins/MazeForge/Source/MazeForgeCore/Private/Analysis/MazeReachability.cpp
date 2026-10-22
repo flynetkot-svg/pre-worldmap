@@ -38,27 +38,53 @@ namespace
 		int32 W = 0;
 		int32 H = 0;
 		int32 Agent = 2;
+		int32 AgentW = 1;
 		TBitArray<> Solid;
 		TArray<int32> FreeAbove; // free cells from here upwards, this one included
 		TBitArray<> Ladder;
 
 		bool Inside(int32 X, int32 Z) const { return X >= 0 && Z >= 0 && X < W && Z < H; }
 		bool IsSolid(int32 X, int32 Z) const { return !Inside(X, Z) || Solid[Z * W + X]; }
-		bool Fits(int32 X, int32 Z) const { return Inside(X, Z) && FreeAbove[Z * W + X] >= Agent; }
+		/** His whole body, AgentW wide and Agent tall, with its bottom-left cell at X, Z. */
+		bool Fits(int32 X, int32 Z) const
+		{
+			for (int32 Dx = 0; Dx < AgentW; ++Dx)
+			{
+				if (!Inside(X + Dx, Z) || FreeAbove[Z * W + X + Dx] < Agent)
+				{
+					return false;
+				}
+			}
+			return true;
+		}
 
 		bool OnLadder(int32 X, int32 Z) const
 		{
-			for (int32 K = 0; K < Agent; ++K)
+			for (int32 Dx = 0; Dx < AgentW; ++Dx)
 			{
-				if (Inside(X, Z + K) && Ladder[(Z + K) * W + X])
+				for (int32 K = 0; K < Agent; ++K)
 				{
-					return true;
+					if (Inside(X + Dx, Z + K) && Ladder[(Z + K) * W + X + Dx])
+					{
+						return true;
+					}
 				}
 			}
 			return false;
 		}
 
-		bool Supported(int32 X, int32 Z) const { return IsSolid(X, Z - 1) || OnLadder(X, Z); }
+		/** Something under any part of him, or a ladder in his hands. */
+		bool Supported(int32 X, int32 Z) const
+		{
+			for (int32 Dx = 0; Dx < AgentW; ++Dx)
+			{
+				if (IsSolid(X + Dx, Z - 1))
+				{
+					return true;
+				}
+			}
+			return OnLadder(X, Z);
+		}
 	};
 
 	void BuildWorld(const FMazeGrid& Grid, const FMazeReachParams& Params, FWorld& Out)
@@ -66,6 +92,7 @@ namespace
 		Out.W = FMath::Max(0, Grid.SizeXZ.X);
 		Out.H = FMath::Max(0, Grid.SizeXZ.Y);
 		Out.Agent = FMath::Max(1, Params.AgentHeightCells);
+		Out.AgentW = FMath::Max(1, Params.AgentWidthCells);
 		BuildSolid(Grid, Out.Solid);
 
 		Out.FreeAbove.SetNumZeroed(Out.W * Out.H);
@@ -180,6 +207,15 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 		const int32 X = Queue[Head] % World.W;
 		const int32 Z = Queue[Head] / World.W;
 
+		if (!Params.bGravity)
+		{
+			Push(X + 1, Z);
+			Push(X - 1, Z);
+			Push(X, Z + 1);
+			Push(X, Z - 1);
+			continue;
+		}
+
 		const bool bLadder = World.OnLadder(X, Z);
 		const bool bGround = World.IsSolid(X, Z - 1);
 
@@ -277,7 +313,8 @@ void MazeReachability::FindIslands(const FMazeReachResult& Result, TArray<FMazeR
 
 bool MazeReachability::ConnectIsland(FMazeGrid& Grid, const FMazeReachResult& Result,
                                       const FMazeReachIsland& Island, int32 AgentHeightCells,
-                                      int32 ShaftWidth, bool bAllowUp, FConnection& Out)
+                                      int32 AgentWidthCells, int32 ShaftWidth, bool bAllowUp,
+                                      FConnection& Out)
 {
 	Out = FConnection();
 	const int32 W = Result.Size.X;
@@ -354,7 +391,7 @@ bool MazeReachability::ConnectIsland(FMazeGrid& Grid, const FMazeReachResult& Re
 	}
 
 	const int32 Head = FMath::Max(2, AgentHeightCells + 1);
-	const int32 Shaft = FMath::Max(2, ShaftWidth);
+	const int32 Shaft = FMath::Max(FMath::Max(2, ShaftWidth), AgentWidthCells);
 
 	// Never into the outermost ring or a closed border: the world's shell stays shut.
 	const int32 PlaneY = Grid.Depth.PlaneCellY();

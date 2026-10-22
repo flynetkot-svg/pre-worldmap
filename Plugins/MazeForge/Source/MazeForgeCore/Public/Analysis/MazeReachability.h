@@ -5,11 +5,16 @@
 struct FMazeGrid;
 
 /**
- *  Where the player can get to, worked out the way he moves in a side view: he walks along
- *  floors, falls from any height, steps or jumps up a few cells, and climbs only ladders.
+ *  Where the player can get to. Two models:
  *
- *  A fall that would kill him still counts. How high a drop is survivable is game design, not
- *  geometry, and a place reached by dying on the way is reached all the same.
+ *  Without gravity (the default) — any space he fits in, joined to the start in any direction.
+ *  Up a shaft counts as reachable, on the understanding that a ladder, a lift or a rope will
+ *  stand there by the time the level is played. What this finds is the pieces nothing could
+ *  ever lead into: pockets sealed in mass, slits narrower than he is.
+ *
+ *  With gravity — the way he moves in a side view: walks along floors, falls from any height,
+ *  steps or jumps up a few cells, and climbs only ladders. A fall that would kill him still
+ *  counts: how high a drop is survivable is game design, not geometry.
  *
  *  Positions are the cell under the player's feet, in the drawing plane (X along the level, Z
  *  up); he fills AgentHeightCells cells above it. The grid's own solid cells and its closed
@@ -18,6 +23,12 @@ struct FMazeGrid;
 struct MAZEFORGECORE_API FMazeReachParams
 {
 	int32 AgentHeightCells = 2;
+
+	/** How wide he is, in cells. At a 10 cm cell the stock capsule is nine of them, not one. */
+	int32 AgentWidthCells = 1;
+
+	/** Off — any space he fits in counts. On — up only by steps, jumps and climbables. */
+	bool bGravity = false;
 
 	/** How far up a step or a jump takes him, in cells. 0 — not at all: only ladders lead up. */
 	int32 ClimbUpCells = 0;
@@ -90,5 +101,6 @@ namespace MazeReachability
 	 */
 	MAZEFORGECORE_API bool ConnectIsland(FMazeGrid& Grid, const FMazeReachResult& Result,
 	                                     const FMazeReachIsland& Island, int32 AgentHeightCells,
-	                                     int32 ShaftWidth, bool bAllowUp, FConnection& OutConnection);
+	                                     int32 AgentWidthCells, int32 ShaftWidth, bool bAllowUp,
+	                                     FConnection& OutConnection);
 }
