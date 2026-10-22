@@ -267,7 +267,7 @@ void UMazeGenerator_Classic::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 	}
 
 	// The other way the shapes go missing: every corridor taller than what counts as a passage.
-	if (DeadEndChance > 0.0f && CorridorHeight > DeadEndMaxHeight)
+	if (DeadEndChance > 0.0f && DeadEndMaxHeight > 0 && CorridorHeight > DeadEndMaxHeight)
 	{
 		UE_LOG(LogMazeForge, Warning,
 			TEXT("Classic: Corridor Height %d is above Dead End Max Height %d — every corridor counts "
