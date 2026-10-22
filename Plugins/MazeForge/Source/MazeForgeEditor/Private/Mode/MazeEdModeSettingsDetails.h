@@ -5,6 +5,9 @@
 
 class IDetailCategoryBuilder;
 class IDetailLayoutBuilder;
+class IPropertyUtilities;
+class UMazeGridAsset;
+struct FPropertyChangedEvent;
 class SBox;
 class UMazeEdModeSettings;
 
@@ -59,6 +62,28 @@ private:
 
 	/** Change Current Maze and Apply Changes To Current Maze, both off until a maze exists. */
 	void BuildEditRows(IDetailCategoryBuilder& Category);
+
+	/**
+	 *  The target's generator, edited here: its class and every one of its settings, the same
+	 *  property the asset shows, reached from the panel. Nothing is copied — editing here is
+	 *  editing the asset.
+	 */
+	void BuildMazeFeatures(IDetailCategoryBuilder& Category);
+
+	/** Regenerates when one of the shown generator settings is committed (Regenerate On Change). */
+	void OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event);
+
+	/** The asset Maze Features was built for. A different target rebuilds the panel. */
+	TWeakObjectPtr<UMazeGridAsset> ShownAsset;
+	TWeakPtr<IPropertyUtilities> PropertyUtilities;
+	FDelegateHandle ObjectChangedHandle;
+
+	/**
+	 *  One regeneration per commit. A setting on the generator reports its change for the
+	 *  generator and for the asset that holds it; both land here in the same frame, and the
+	 *  run waits for the next tick so it happens once, outside the property system's notify.
+	 */
+	TSharedRef<bool> bGeneratePending = MakeShared<bool>(false);
 
 	TWeakObjectPtr<UMazeEdModeSettings> Settings;
 

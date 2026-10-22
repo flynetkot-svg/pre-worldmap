@@ -73,6 +73,15 @@ public:
 	TSoftObjectPtr<UMazeGridAsset> TargetAsset;
 
 	/**
+	 *  Generate the maze again as soon as a setting under Maze Features is committed.
+	 *
+	 *  Committed, not dragged: a slider regenerates when it is let go, not on every step. Off —
+	 *  only Generate Maze does. Every run snapshots the drawing first, as the button does.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Maze Features")
+	bool bRegenerateOnChange = true;
+
+	/**
 	 *  The state of the target in a single line: plane or volume, cells, rooms, snapshot.
 	 *
 	 *  So you do not have to open the asset just to ask "what shape is it in right now?".
