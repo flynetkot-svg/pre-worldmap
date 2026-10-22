@@ -105,13 +105,6 @@ public:
 
 	// ------------------------------------------------------------------ movement
 
-	/**
-	 *  The player's height in cells. A passage lower than this is a wall.
-	 *
-	 *  The stock UE capsule is 176 cm, which is two cells of 100.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Movement", meta = (ClampMin = "1", UIMax = "6"))
-	int32 AgentHeightCells = 2;
 
 	/**
 	 *  How far up the player can get from a standing start, in cells.
@@ -140,66 +133,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Doors", meta = (ClampMin = "2", UIMax = "8"))
 	int32 ChimneyWidthCells = 3;
 
-	// ------------------------------------------------------------------- erosion
-
-	/**
-	 *  How much of the outline to chew away, as a fraction of the cells along it.
-	 *
-	 *  What separates a dungeon from a spreadsheet. Everything above draws rectangles, and a
-	 *  room that is exactly a rectangle reads as a room somebody typed in. One pass over the
-	 *  boundary that bites cells out of the mass and sticks cells back on to it costs almost
-	 *  nothing and is most of the difference.
-	 *
-	 *  Zero leaves the outlines straight, which is the right answer for a clean industrial
-	 *  interior and the wrong one for rock.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Erosion", meta = (ClampMin = "0", ClampMax = "1"))
-	float ErosionAmount = 0.35f;
-
-	/**
-	 *  How many times to pass over the outline.
-	 *
-	 *  One pass only ever moves the boundary by a cell, so the edge comes out evenly rough.
-	 *  Two or three let a bite deepen into a notch and a bump grow into an outcrop, because
-	 *  each pass works on what the last one left — which is what makes the result look worn
-	 *  rather than dithered.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Erosion", meta = (ClampMin = "1", ClampMax = "6"))
-	int32 ErosionPasses = 2;
-
-	/**
-	 *  Rough up the surfaces the player runs along.
-	 *
-	 *  Off by default, and it is the one of the three that changes how the level plays rather
-	 *  than how it looks. A bitten floor is a floor with steps in it: the character catches on
-	 *  every notch, a run that should be one movement becomes a series of little climbs, and
-	 *  the fault reads as bad controls rather than as bad ground. A bump added on top of a
-	 *  floor does the same thing the other way up.
-	 *
-	 *  Both are covered here: the flag protects the walkable surface, not just the mass under
-	 *  it, so neither biting into the top of a floor nor growing a lump on it happens while it
-	 *  is off.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Erosion")
-	bool bErodeFloors = false;
-
-	/** Rough up the undersides of slabs. Nobody walks there — it is pure texture. */
-	UPROPERTY(EditAnywhere, Category = "Erosion")
-	bool bErodeCeilings = true;
-
-	/** Rough up the vertical faces to the left and right. Also pure texture. */
-	UPROPERTY(EditAnywhere, Category = "Erosion")
-	bool bErodeWalls = true;
-
-	/**
-	 *  Never bite into a wall thinner than this, in cells.
-	 *
-	 *  The guard that keeps erosion decorative. A wall eaten through is not a rough edge, it
-	 *  is a hole between two chambers that no door accounts for — and since the chambers are
-	 *  joined by construction and checked before this runs, nothing downstream would notice.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Erosion", meta = (ClampMin = "1", UIMax = "8"))
-	int32 ErosionKeepWallCells = 2;
+	// Erosion and the player's height live on UMazeGeneratorBase now, under the same names, so
+	// a dungeon saved before keeps its values. Dungeon runs the shaping itself (ShapeOutline),
+	// before it fills unreachable pockets.
 
 	// -------------------------------------------------------------- connectivity
 
@@ -219,6 +155,8 @@ public:
 	int32 MaxPocketCells = 40;
 
 	virtual FText GetDisplayName() const override;
+
+	UMazeGenerator_Dungeon();
 
 protected:
 	virtual void Generate(FMazeGrid& InOutGrid, FRandomStream& Rng) override;
@@ -279,16 +217,6 @@ private:
 	/** A climbable shaft between two chambers stacked one above the other. */
 	void CarveChimney(FMazeLayout2D& Layout, const FChamber& Lower, const FChamber& Upper,
 	                  FRandomStream& Rng) const;
-
-	/**
-	 *  Roughens the boundary between mass and air. Returns how many cells changed.
-	 *
-	 *  Runs on the finished layout, after the doors and the chimneys, and deliberately so: it
-	 *  reads the outline as it actually ended up rather than the one the rectangles implied.
-	 *  It refuses to touch anything that would thin a wall past ErosionKeepWallCells, thin a
-	 *  floor a player stands on, or lower a ceiling onto his head.
-	 */
-	int32 ErodeOutline(FMazeLayout2D& Layout, const FRect& Area, FRandomStream& Rng) const;
 
 	/** Where the player starts: the floor of the lowest chamber. */
 	FIntPoint FindEntryPoint(const TArray<FChamber>& Chambers) const;

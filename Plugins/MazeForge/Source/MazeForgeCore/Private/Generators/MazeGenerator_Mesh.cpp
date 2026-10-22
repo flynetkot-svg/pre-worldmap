@@ -18,6 +18,12 @@ FText UMazeGenerator_Mesh::GetDisplayName() const
 	return LOCTEXT("GeneratorMesh", "Static Mesh");
 }
 
+UMazeGenerator_Mesh::UMazeGenerator_Mesh()
+{
+	// Meshes are usually voxelised finer than the 100 cm default: four cells of 50.
+	AgentHeightCells = 4;
+}
+
 void UMazeGenerator_Mesh::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 {
 	UStaticMesh* Source = Mesh.LoadSynchronous();
@@ -283,7 +289,7 @@ void UMazeGenerator_Mesh::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 
 	// We deliberately do not touch the depth profile: the volume along Y is what the
 	// designer set up in the grid, not what was in the flat source.
-	MazeWriteLayoutToGrid(Layout, InOutGrid);
+	WriteLayout(Layout, InOutGrid, Rng);
 
 	UE_LOG(LogMazeForge, Log,
 		TEXT("Mesh: %s, source %s, %d triangles -> grid %d x %d, ")

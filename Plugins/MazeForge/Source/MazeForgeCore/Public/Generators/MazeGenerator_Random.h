@@ -105,15 +105,6 @@ public:
 
 	// ------------------------------------------------------------- connectivity
 
-	/**
-	 *  The player's height in cells. The main connectivity parameter.
-	 *
-	 *  Everything is computed and carved for an agent of this height: a passage lower
-	 *  than it is a wall to the player, no matter how much success the flood fill
-	 *  reports. The stock UE capsule is 176 cm, that is two cells of 100.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Connectivity", meta = (ClampMin = "1", UIMax = "6"))
-	int32 AgentHeightCells = 2;
 
 	/**
 	 *  Carve a way through to cut-off cavities instead of filling them back in.

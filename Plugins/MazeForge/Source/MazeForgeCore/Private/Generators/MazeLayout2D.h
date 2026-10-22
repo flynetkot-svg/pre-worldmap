@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "Data/MazeTypes.h"
+#include "Generators/MazeOutlineShaping.h"
 
 struct FMazeGrid;
 
@@ -109,6 +110,75 @@ struct FMazeLayout2D
 private:
 	TArray<EMazeCellType> Cells;
 };
+
+/** What one roughing-up of the outline may touch. See MazeErodeOutline. */
+struct FMazeErosionParams
+{
+	/** Share of the boundary cells changed per pass, 0..1. */
+	float Amount = 0.0f;
+	int32 Passes = 1;
+
+	/** Which surfaces: the tops of floors (changes how the level plays), undersides, sides. */
+	bool bFloors = false;
+	bool bCeilings = true;
+	bool bWalls = true;
+
+	/** Never bite into mass thinner than this. */
+	int32 KeepWallCells = 2;
+
+	/** Never grow mass into this much headroom above a floor. */
+	int32 AgentHeightCells = 2;
+
+	/** The area worked on. Min inclusive, Max exclusive; its outermost ring is left alone. */
+	FIntPoint Min = FIntPoint::ZeroValue;
+	FIntPoint Max = FIntPoint::ZeroValue;
+
+	/** Cells never changed, indexed like the layout. Null — nothing protected. */
+	const TBitArray<>* Protected = nullptr;
+};
+
+/**
+ *  Bites cells out of the outline of the mass and sticks cells back on to it, so walls,
+ *  floors and ceilings stop being ruler-straight. Returns how many cells changed.
+ *
+ *  Shared by the generators that want it: the rules — which surface may change, how thin a
+ *  wall may get, how much headroom stays clear — are the same wherever the outline came from.
+ */
+int32 MazeErodeOutline(FMazeLayout2D& Layout, const FMazeErosionParams& Params, FRandomStream& Rng);
+
+/** Which passage ends to shape, and how. See MazeShapeDeadEnds. */
+struct FMazeDeadEndParams
+{
+	/** Share of the ends found that get a shape. 0 — nothing happens and no random number is drawn. */
+	float Chance = 0.0f;
+
+	/** The weighted mix. Null or all weights zero — nothing happens. */
+	const TArray<FMazeDeadEndShapeChoice>* Shapes = nullptr;
+
+	/** Cells back from the end wall. 0 — about 45 degrees for the shape. */
+	int32 Length = 0;
+
+	/** Passage height range that counts. Lower is a crawlspace, higher is a hall. */
+	int32 MinHeight = 2;
+	int32 MaxHeight = 8;
+
+	/** The area worked on. Min inclusive, Max exclusive. */
+	FIntPoint Min = FIntPoint::ZeroValue;
+	FIntPoint Max = FIntPoint::ZeroValue;
+
+	/** Cells never changed, indexed like the layout. Null — nothing protected. */
+	const TBitArray<>* Protected = nullptr;
+};
+
+/**
+ *  Gives passage ends a shape: finds every straight stretch of corridor that stops at a wall
+ *  with nothing leading on, and fills mass into its last columns along a profile — an arrow,
+ *  a slant, a half-circle. Returns how many ends were shaped (Flat ones included).
+ *
+ *  Works on any drawing, which is the point: what it looks for is geometry, not the way a
+ *  particular generator built it.
+ */
+int32 MazeShapeDeadEnds(FMazeLayout2D& Layout, const FMazeDeadEndParams& Params, FRandomStream& Rng);
 
 /**
  *  Stretches the flat solution along the depth and writes it into the grid.

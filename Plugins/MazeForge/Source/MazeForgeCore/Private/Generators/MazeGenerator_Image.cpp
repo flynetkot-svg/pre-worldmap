@@ -256,7 +256,7 @@ void UMazeGenerator_Image::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 
 	// --- 6. The flat solution is stretched along the depth.
 
-	MazeWriteLayoutToGrid(Layout, InOutGrid);
+	WriteLayout(Layout, InOutGrid, Rng);
 
 	UE_LOG(LogMazeForge, Log,
 		TEXT("Image: %s %dx%d -> grid %dx%d, %d rules, %d unreachable cavities."),

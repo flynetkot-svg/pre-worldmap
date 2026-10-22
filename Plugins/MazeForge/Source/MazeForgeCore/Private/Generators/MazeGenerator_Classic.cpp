@@ -216,6 +216,13 @@ namespace
 	}
 }
 
+UMazeGenerator_Classic::UMazeGenerator_Classic()
+{
+	// A maze of tubes reads as one when it is a little worn and its ends are not all square.
+	ErosionAmount = 0.3f;
+	DeadEndChance = 0.5f;
+}
+
 FText UMazeGenerator_Classic::GetDisplayName() const
 {
 	return LOCTEXT("GeneratorClassic", "Classic");
@@ -285,6 +292,10 @@ void UMazeGenerator_Classic::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 		return FIntPoint(AreaMin.X + WallThickness + C * PitchX, AreaMin.Y + FloorThickness + R * PitchZ);
 	};
 
+	// The shaping that runs when the drawing is written (dead ends, erosion) must leave each
+	// ladder alone: its column, the floor it stands on, and the headroom where the player steps
+	// off at the top. An outcrop there is a ladder the export refuses to build, or one nobody
+	// can get off.
 	int32 Ladders = 0;
 	for (int32 R = 0; R < Rows; ++R)
 	{
@@ -308,6 +319,8 @@ void UMazeGenerator_Classic::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 				const int32 HoleX = (R % 2 == 0) ? Min.X : Min.X + CorridorWidth - Hole;
 				const FIntPoint HoleMin(HoleX, Min.Y + CorridorHeight);
 				Layout.FillRect(HoleMin, HoleMin + FIntPoint(Hole, FloorThickness), EMazeCellType::Empty);
+				ProtectRect(FIntPoint(HoleX, Min.Y - 1),
+					FIntPoint(HoleX + Hole, Min.Y + PitchZ + FMath::Max(1, AgentHeightCells)));
 
 				if (!LadderType.IsNone())
 				{
@@ -323,9 +336,10 @@ void UMazeGenerator_Classic::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 		}
 	}
 
-	MazeWriteLayoutToGrid(Layout, InOutGrid);
+	// 3. Dead ends and erosion happen in WriteLayout, the same for every generator.
+	WriteLayout(Layout, InOutGrid, Rng);
 
-	// 3. Where to put the start and the finish: the generator does not place transitions, but it
+	// 4. Where to put the start and the finish: the generator does not place transitions, but it
 	//    knows where the longest walk ends.
 	int32 Steps = 0;
 	const FIntPoint Far = FindFarthest(Lattice, Steps);
