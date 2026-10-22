@@ -476,7 +476,7 @@ void UMazeGenerator_Random::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 	}
 
 	// 8. The flat solution is stretched along the depth.
-	MazeWriteLayoutToGrid(Layout, InOutGrid);
+	WriteLayout(Layout, InOutGrid, Rng);
 
 	UE_LOG(LogMazeForge, Log,
 		TEXT("Random: %d sectors, %d halls, %d shafts, %d cavities handled, ")

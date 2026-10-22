@@ -6,6 +6,12 @@
 
 #define LOCTEXT_NAMESPACE "MazeForge"
 
+UMazeGenerator_Dungeon::UMazeGenerator_Dungeon()
+{
+	// Rock wants rough edges; the base leaves them straight for everybody else.
+	ErosionAmount = 0.35f;
+}
+
 FText UMazeGenerator_Dungeon::GetDisplayName() const
 {
 	return LOCTEXT("GeneratorDungeon", "Dungeon");
@@ -303,149 +309,6 @@ void UMazeGenerator_Dungeon::CarveChimney(FMazeLayout2D& Layout, const FChamber&
 
 // --------------------------------------------------------------------- erosion
 
-int32 UMazeGenerator_Dungeon::ErodeOutline(FMazeLayout2D& Layout, const FRect& Area,
-                                           FRandomStream& Rng) const
-{
-	const float Amount = FMath::Clamp(ErosionAmount, 0.0f, 1.0f);
-	if (Amount <= 0.0f || (!bErodeFloors && !bErodeCeilings && !bErodeWalls))
-	{
-		return 0;
-	}
-
-	const int32 Keep = FMath::Max(1, ErosionKeepWallCells);
-	const int32 Head = FMath::Max(1, AgentHeightCells);
-	const int32 Passes = FMath::Clamp(ErosionPasses, 1, 6);
-
-	int32 Changed = 0;
-
-	for (int32 Pass = 0; Pass < Passes; ++Pass)
-	{
-		// Read the whole boundary first, then write. Eroding in place means the second cell
-		// of a run is judged against a neighbour the first one just changed, and the bites
-		// walk across the map in the direction of the loop — a texture nobody asked for, and
-		// one that is invisible until somebody notices every notch faces left.
-		TArray<FIntPoint> ToCarve;
-		TArray<FIntPoint> ToFill;
-
-		for (int32 X = Area.Min.X + 1; X < Area.Max.X - 1; ++X)
-		{
-			for (int32 Z = Area.Min.Y + 1; Z < Area.Max.Y - 1; ++Z)
-			{
-				if (Rng.FRand() > Amount)
-				{
-					continue;
-				}
-
-				const bool bSolid = !Layout.IsFree(X, Z);
-
-				const bool bFreeLeft = Layout.IsFree(X - 1, Z);
-				const bool bFreeRight = Layout.IsFree(X + 1, Z);
-				const bool bFreeBelow = Layout.IsFree(X, Z - 1);
-				const bool bFreeAbove = Layout.IsFree(X, Z + 1);
-
-				// Only the boundary. A cell with mass on every side is not an outline, and a
-				// bite taken out of the middle of the rock is a bubble nobody will ever see.
-				const int32 FreeNeighbours = (bFreeLeft ? 1 : 0) + (bFreeRight ? 1 : 0)
-				                           + (bFreeBelow ? 1 : 0) + (bFreeAbove ? 1 : 0);
-
-				if (FreeNeighbours == 0 || FreeNeighbours == 4)
-				{
-					continue;
-				}
-
-				// Which surface this cell belongs to, read off where the air is.
-				//
-				// A solid cell with air above it is the top of a floor; with air below it, the
-				// underside of a ceiling. An empty cell resting on mass is standing ON a floor,
-				// so filling it raises that floor — the same surface, changed from the other
-				// side. That symmetry is the point: protecting the mass alone would leave the
-				// walkable line just as lumpy, only with the lumps added instead of bitten.
-				//
-				// A corner is several surfaces at once, and the strictest answer wins: a bite
-				// at the corner of a ledge still chews the edge somebody runs along.
-				const bool bFloorSurface = bSolid ? bFreeAbove : !bFreeBelow;
-				const bool bCeilingSurface = bSolid ? bFreeBelow : !bFreeAbove;
-				const bool bWallSurface = bSolid
-					? (bFreeLeft || bFreeRight)
-					: (!bFreeLeft || !bFreeRight);
-
-				if (bFloorSurface && !bErodeFloors)
-				{
-					continue;
-				}
-
-				if (bCeilingSurface && !bErodeCeilings)
-				{
-					continue;
-				}
-
-				// Only when it is nothing else: a cell that is both is already past the two
-				// tests above, and refusing it here would mean the wall flag could veto a
-				// ceiling that its own flag allowed.
-				if (bWallSurface && !bFloorSurface && !bCeilingSurface && !bErodeWalls)
-				{
-					continue;
-				}
-
-				if (bSolid)
-				{
-					// Biting mass away. Refused where the mass is thin: along X it is a wall
-					// between two chambers, along Z it is the floor somebody stands on and
-					// the ceiling over their head.
-					bool bThin = false;
-
-					for (int32 D = 1; D <= Keep && !bThin; ++D)
-					{
-						bThin = (Layout.IsFree(X - D, Z) && Layout.IsFree(X + D, Z))
-						     || (Layout.IsFree(X, Z - D) && Layout.IsFree(X, Z + D));
-					}
-
-					if (bThin)
-					{
-						continue;
-					}
-
-					ToCarve.Add(FIntPoint(X, Z));
-				}
-				else
-				{
-					// Sticking mass back on. Only where it hangs off the side of something,
-					// never where it would drop into the headroom above a floor: an outcrop
-					// growing down from a ceiling is scenery, the same outcrop at knee height
-					// over a walkable floor is a passage that closed itself.
-					bool bBlocksHead = false;
-
-					for (int32 D = 1; D <= Head && !bBlocksHead; ++D)
-					{
-						bBlocksHead = !Layout.IsFree(X, Z - D);
-					}
-
-					if (bBlocksHead)
-					{
-						continue;
-					}
-
-					ToFill.Add(FIntPoint(X, Z));
-				}
-			}
-		}
-
-		for (const FIntPoint& Cell : ToCarve)
-		{
-			Layout.Set(Cell.X, Cell.Y, EMazeCellType::Empty);
-		}
-
-		for (const FIntPoint& Cell : ToFill)
-		{
-			Layout.Set(Cell.X, Cell.Y, EMazeCellType::Solid);
-		}
-
-		Changed += ToCarve.Num() + ToFill.Num();
-	}
-
-	return Changed;
-}
-
 // ------------------------------------------------------------------ entry point
 
 FIntPoint UMazeGenerator_Dungeon::FindEntryPoint(const TArray<FChamber>& Chambers) const
@@ -557,7 +420,7 @@ void UMazeGenerator_Dungeon::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 	// Erosion first, pockets after. The other order looks equivalent and is not: erosion is
 	// the one step here that can seal a corner off, and the pocket pass is what notices. Run
 	// it before and it certifies a layout that is about to change.
-	const int32 Eroded = ErodeOutline(Layout, Root, Rng);
+	const int32 Eroded = ShapeOutline(Layout, Root.Min, Root.Max, Rng);
 
 	const FIntPoint Entry = FindEntryPoint(Chambers);
 
@@ -567,7 +430,7 @@ void UMazeGenerator_Dungeon::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 		Filled = FillPockets(Layout, Entry);
 	}
 
-	MazeWriteLayoutToGrid(Layout, InOutGrid);
+	WriteLayout(Layout, InOutGrid, Rng);
 
 	// The average size is reported because it is the number the target is aimed at, and the
 	// only way to tell a target that was met from one that the minimum sizes overruled.

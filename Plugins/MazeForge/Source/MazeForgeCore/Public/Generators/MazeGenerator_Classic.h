@@ -93,6 +93,9 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Ladders", meta = (ClampMin = "2", UIMax = "6"))
 	int32 HoleWidth = 2;
 
+
+	UMazeGenerator_Classic();
+
 	virtual FText GetDisplayName() const override;
 
 protected:

@@ -51,20 +51,14 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Fill")
 	bool bFillUnreachable = true;
 
-	/**
-	 *  The player's height in cells. Defines what counts as reachable.
-	 *
-	 *  The stock UE capsule is 176 cm, that is two cells of 100 or four of 50.
-	 *  A gap lower than this height is impassable, and the cavity behind it will be filled.
-	 */
-	UPROPERTY(EditAnywhere, Category = "Fill", meta = (ClampMin = "1", UIMax = "8"))
-	int32 AgentHeightCells = 4;
 
 	/** Which LOD we take apart. Zero — the source one. */
 	UPROPERTY(EditAnywhere, Category = "Rebuild", AdvancedDisplay, meta = (ClampMin = "0", UIMax = "4"))
 	int32 LODIndex = 0;
 
 	virtual FText GetDisplayName() const override;
+
+	UMazeGenerator_Mesh();
 
 protected:
 	virtual void Generate(FMazeGrid& InOutGrid, FRandomStream& Rng) override;

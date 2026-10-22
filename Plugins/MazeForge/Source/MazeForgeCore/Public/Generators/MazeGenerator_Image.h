@@ -109,9 +109,6 @@ public:
 	UPROPERTY(EditAnywhere, Category = "Validation")
 	bool bReportUnreachable = true;
 
-	/** The player's height in cells. Only for the reachability check, changes no geometry. */
-	UPROPERTY(EditAnywhere, Category = "Validation", meta = (ClampMin = "1", UIMax = "6"))
-	int32 AgentHeightCells = 2;
 
 	virtual FText GetDisplayName() const override;
 
