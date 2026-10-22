@@ -255,6 +255,26 @@ void UMazeGenerator_Classic::Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 		return;
 	}
 
+	// Said before anything is drawn: a corridor lower than the player is a wall to him, and the
+	// dead-end shaping skips such passages as crawlspaces — so this one setting quietly turns off
+	// both the walking and the shapes, and nothing else would say so.
+	if (CorridorHeight < AgentHeightCells)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Classic: Corridor Height %d is lower than Agent Height Cells %d — the player does "
+			     "not fit, and no dead end gets a shape. Raise the corridor or lower the agent."),
+			CorridorHeight, AgentHeightCells);
+	}
+
+	// The other way the shapes go missing: every corridor taller than what counts as a passage.
+	if (DeadEndChance > 0.0f && CorridorHeight > DeadEndMaxHeight)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Classic: Corridor Height %d is above Dead End Max Height %d — every corridor counts "
+			     "as a hall, and no dead end gets a shape. Raise Dead End Max Height to at least %d."),
+			CorridorHeight, DeadEndMaxHeight, CorridorHeight);
+	}
+
 	const int32 Hole = FMath::Min(HoleWidth, CorridorWidth);
 	if (CorridorWidth < 2 * Hole)
 	{
