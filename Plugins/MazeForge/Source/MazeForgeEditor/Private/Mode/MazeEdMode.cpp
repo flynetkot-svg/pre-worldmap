@@ -206,6 +206,12 @@ void UMazeEdMode::OnLevelChangedInWorld(ULevel* Level, UWorld* World)
 
 void UMazeEdMode::OnAssetGridChanged()
 {
+	// The reachability overlay describes the grid as it was; any change makes it a guess.
+	if (Settings)
+	{
+		Settings->ClearReachability();
+	}
+
 	RebuildPreview();
 }
 
@@ -617,6 +623,37 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 				FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, Line,
 					Style.RoomHatchSpacingCells, false, Style.bRoomHatchCrossed);
 			}
+		}
+	}
+
+	// The last reachability check: rooms the player never gets to, hatched red; rooms he gets
+	// into only in part, orange. Before slicing there are no rooms, so the pieces themselves.
+	if (Settings->ReachAsset.Get() == Asset)
+	{
+		const FMazeLineStyle Unreached(FLinearColor(1.0f, 0.12f, 0.08f, 0.85f), 2.0f);
+		const FMazeLineStyle Partly(FLinearColor(1.0f, 0.60f, 0.10f, 0.75f), 2.0f);
+		const int32 Slice = Settings->ActiveDepthSlice;
+
+		for (const FMazeRoomDesc& Room : Asset->Rooms)
+		{
+			if (const uint8* Status = Settings->ReachRoomStatus.Find(Room.RoomId))
+			{
+				const FMazeLineStyle& Line = (*Status == 1) ? Unreached : Partly;
+				const FIntVector Min(Room.MinXZ.X, Slice, Room.MinXZ.Y);
+				const FIntVector Max(Room.MaxXZ.X - 1, Slice, Room.MaxXZ.Y - 1);
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, Line);
+				FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, Line,
+					Style.RoomHatchSpacingCells, false, *Status == 1);
+			}
+		}
+
+		for (const FIntRect& Piece : Settings->ReachIslandBounds)
+		{
+			const FIntVector Min(Piece.Min.X, Slice, Piece.Min.Y);
+			const FIntVector Max(Piece.Max.X - 1, Slice, Piece.Max.Y - 1);
+			FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, Unreached);
+			FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, Unreached,
+				Style.RoomHatchSpacingCells, false, true);
 		}
 	}
 
