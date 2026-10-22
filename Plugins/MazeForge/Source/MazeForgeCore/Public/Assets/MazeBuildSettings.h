@@ -227,6 +227,17 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bake")
 	bool bCullFarBoundaryFaces = false;
 
+	/**
+	 *  Join neighbouring faces that lie in one plane and share a material into one quad.
+	 *
+	 *  A wall twenty cells long is one quad instead of twenty; on a fine grid that is tens of
+	 *  times fewer triangles for the same picture. The UVs are world-space, so a texture runs
+	 *  across a joined quad exactly as it ran across the cells. Off — one quad per cell face,
+	 *  as before: the fallback should the long thin triangles of a joined quad ever show a seam.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bake")
+	bool bMergeCoplanarFaces = true;
+
 	// ------------------------------------------------------------------- Decor binding
 
 	/**

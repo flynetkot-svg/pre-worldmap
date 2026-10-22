@@ -134,7 +134,8 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room, FMazeRoomHashTr
 			(Settings->bSplitByDepthBand   ? 1 : 0) |
 			(Settings->bCullEnclosedCells  ? 2 : 0) |
 			(Settings->bCullFarBoundaryFaces ? 4 : 0) |
-			(Settings->bMergeMaterials     ? 8 : 0)));
+			(Settings->bMergeMaterials     ? 8 : 0) |
+			(Settings->bMergeCoplanarFaces ? 16 : 0)));
 
 		// Sorted, because a TMap does not promise an iteration order and a hash that depends on
 		// one would flip between editor runs and rebake the whole maze for nothing.
