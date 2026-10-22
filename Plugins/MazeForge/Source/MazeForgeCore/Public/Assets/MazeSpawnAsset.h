@@ -68,6 +68,9 @@ public:
 	 */
 	int32 RemoveGenerated();
 
+	/** Drops every placement the maze generator made (bStructural), and only those. */
+	int32 RemoveStructural();
+
 	/**
 	 *  The topmost placement whose footprint covers this cell, or INDEX_NONE.
 	 *

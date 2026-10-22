@@ -2,6 +2,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Object.h"
+#include "Data/MazeSpawnTypes.h"
 #include "MazeGeneratorBase.generated.h"
 
 struct FMazeGrid;
@@ -65,7 +66,23 @@ public:
 	/** Name for the dropdown and the logs. */
 	virtual FText GetDisplayName() const;
 
+	/**
+	 *  Objects the last run decided the maze cannot be walked without — the ladders in its
+	 *  shafts. Empty for most generators.
+	 *
+	 *  The grid holds mass and nothing else, so a generator that needs a ladder cannot draw one;
+	 *  it says where, and UMazeGridAsset::RunGenerator puts it into the maze's spawn asset as a
+	 *  structural placement. Output of one run, not a setting: never saved.
+	 */
+	const TArray<FMazePlacement>& GetStructuralPlacements() const { return StructuralPlacements; }
+
 protected:
 	virtual void Generate(FMazeGrid& InOutGrid, FRandomStream& Rng)
 		PURE_VIRTUAL(UMazeGeneratorBase::Generate, );
+
+	/** For Generate: an object that belongs to the maze itself. Marked structural here. */
+	void AddStructuralPlacement(FMazePlacement Placement);
+
+private:
+	TArray<FMazePlacement> StructuralPlacements;
 };

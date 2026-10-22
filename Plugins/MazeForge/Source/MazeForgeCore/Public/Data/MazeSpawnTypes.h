@@ -305,6 +305,18 @@ struct MAZEFORGECORE_API FMazePlacement
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")
 	bool bGenerated = false;
 
+	/**
+	 *  Put here by the maze generator as part of the maze itself — the ladder in a shaft.
+	 *
+	 *  A third origin, because neither of the other two fits. Generate Objects must not throw it
+	 *  away with the decor: without it the shaft cannot be climbed. And it is not the designer's
+	 *  either: the next maze generation moves the shafts, and a ladder left where a shaft used
+	 *  to be is a ladder into a wall. So Generate Objects keeps it, as it keeps anything placed
+	 *  by hand, and the maze generator replaces every one of them on its next run.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")
+	bool bStructural = false;
+
 	/** The footprint rectangle in cells, given the type that owns it. Max exclusive. */
 	FIntPoint MaxCellXZ(const FIntPoint& FootprintCells) const
 	{

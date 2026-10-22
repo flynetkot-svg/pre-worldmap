@@ -1,6 +1,8 @@
 ﻿#include "Assets/MazeGridAsset.h"
 
 #include "Assets/MazeBuildSettings.h"
+#include "Assets/MazeObjectLibrary.h"
+#include "Assets/MazeSpawnAsset.h"
 #include "Generators/MazeGenerator_Manual.h"
 #include "MazeForgeCore.h"
 #include "Slicers/MazeSlicer_UniformGrid.h"
@@ -426,6 +428,41 @@ void UMazeGridAsset::RunGenerator()
 	}
 
 	Generator->Execute(Grid);
+
+	// The ladders and anything else the maze cannot be walked without. Into the spawn asset,
+	// because the grid holds mass only; see UMazeGeneratorBase::GetStructuralPlacements.
+	const TArray<FMazePlacement>& Structural = Generator->GetStructuralPlacements();
+	if (UMazeSpawnAsset* SpawnAsset = Spawns.LoadSynchronous())
+	{
+		// A cleared grid takes its old ladders with it; drawing on top of a maze keeps them.
+		const int32 Removed = Generator->bClearBeforeGenerate ? SpawnAsset->RemoveStructural() : 0;
+		const int32 Added = SpawnAsset->AddBatch(Structural);
+
+		if (Removed + Added > 0)
+		{
+			UE_LOG(LogMazeForge, Log,
+				TEXT("%s: structural objects (ladders) — %d from the previous maze removed, %d placed."),
+				*GetName(), Removed, Added);
+		}
+
+		const UMazeObjectLibrary* Library = SpawnAsset->Library.LoadSynchronous();
+		if (Structural.Num() > 0 && (!Library || !Library->FindType(Structural[0].TypeId)))
+		{
+			UE_LOG(LogMazeForge, Warning,
+				TEXT("%s: the generator placed %d object(s) of type '%s', which %s. They will not "
+				     "be built until the type exists."),
+				*GetName(), Structural.Num(), *Structural[0].TypeId.ToString(),
+				Library ? *FString::Printf(TEXT("the library %s does not have"), *Library->GetName())
+				        : TEXT("cannot be checked: the spawn asset has no library"));
+		}
+	}
+	else if (Structural.Num() > 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("%s: the generator wanted %d ladder(s), but this grid asset has no Spawns asset to "
+			     "put them in. Set one and generate again — without ladders the shafts can only be "
+			     "fallen down."), *GetName(), Structural.Num());
+	}
 
 	// After the drawing and not inside the generator, and that is not a detail. FillBackWall
 	// paints behind every column that is NOT mass, so it has to look at a finished layout: a
