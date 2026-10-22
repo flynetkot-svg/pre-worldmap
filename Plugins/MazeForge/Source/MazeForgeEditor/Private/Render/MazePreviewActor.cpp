@@ -142,23 +142,32 @@ void AMazePreviewActor::Rebuild(const UMazeGridAsset* Asset, const TSet<FName>& 
 		}
 	}
 
-	auto IsInsideExportedRoom = [&SkipRects](const FIntVector& Cell)
+	// The exported rooms as one mask over XZ, built once. Asking every cell about every room was
+	// cells times rooms: on a fine grid with all its rooms attached, the editor stopped for that
+	// alone.
+	const int32 SizeX = FMath::Max(0, Grid.SizeXZ.X);
+	const int32 SizeZ = FMath::Max(0, Grid.SizeXZ.Y);
+	TBitArray<> Exported(false, SkipRects.Num() > 0 ? SizeX * SizeZ : 0);
+	for (const FMazeRoomDesc& Room : SkipRects)
 	{
-		for (const FMazeRoomDesc& Room : SkipRects)
+		for (int32 Z = FMath::Max(0, Room.MinXZ.Y); Z < FMath::Min(SizeZ, Room.MaxXZ.Y); ++Z)
 		{
-			if (Room.ContainsXZ(Cell.X, Cell.Z))
+			for (int32 X = FMath::Max(0, Room.MinXZ.X); X < FMath::Min(SizeX, Room.MaxXZ.X); ++X)
 			{
-				return true;
+				Exported[Z * SizeX + X] = true;
 			}
 		}
-		return false;
+	}
+
+	auto IsInsideExportedRoom = [&Exported, SizeX, SizeZ](const FIntVector& Cell)
+	{
+		return Exported.Num() > 0 && Cell.X >= 0 && Cell.X < SizeX && Cell.Z >= 0 && Cell.Z < SizeZ
+			&& Exported[Cell.Z * SizeX + Cell.X];
 	};
 
-	// The engine's cube is exactly 100 cm, so the scale is the cell size divided by 100.
-	const FVector Scale = Grid.CellSize / 100.0;
-
+	// The engine's cube is exactly 100 cm: a box is scaled to its size divided by 100.
 	TMap<int32, TArray<FTransform>> Batches;
-	int32 Culled = 0;
+	int32 Boxes = 0;
 
 	// Isolation moves the layers that are NOT being painted away from the camera, and leaves the
 	// layer being drawn exactly where it belongs.
@@ -178,32 +187,121 @@ void AMazePreviewActor::Rebuild(const UMazeGridAsset* Asset, const TSet<FName>& 
 	// that is the case of a maze asset with no Build Settings assigned yet.
 	const UMazeBuildSettings* Settings = Asset->BuildSettings.LoadSynchronous();
 
-	// In a flat grid there are no enclosed cells by construction: they simply have no
-	// neighbours along the depth axis, and the check always returns false. Yet it costs six
-	// TMap lookups per cell — and while rebuilding during a stroke that is exactly the
-	// difference between "it draws" and "it does not".
-	const bool bCanBeEnclosed = Grid.DepthCells() > 1;
-
+	// Cells merged into boxes before anything is instanced.
+	//
+	// One instance per cell is what this used to be, and it is what stopped the editor dead on a
+	// 3000 x 2000 grid of 10 cm cells: six million instances, rebuilt on every change. A maze is
+	// long runs of one type, so per layer and depth slice the cells are joined into greedy
+	// rectangles in XZ, and the same rectangle on neighbouring slices into one box along Y. A
+	// million cells come out as a few thousand boxes, and the picture is the same.
+	//
+	// The walled-in cells the per-cell version had to find and skip — six map lookups each — are
+	// simply inside a box now, where they cost nothing.
+	TMap<uint64, TArray<FIntPoint>> Slices; // (layer key << 32) | depth slice
 	for (const TPair<FIntVector, FMazeCell>& Pair : Grid.Cells)
 	{
-		// A cell closed off by solids on every side is not visible — we do not build it in the
-		// preview either. The same culling later runs in the export and removes the bulk of
-		// the geometry.
-		if (bCanBeEnclosed && Pair.Value.IsSolid() && Grid.IsFullyEnclosed(Pair.Key))
-		{
-			++Culled;
-			continue;
-		}
-
 		if (IsInsideExportedRoom(Pair.Key))
 		{
 			continue;
 		}
 
-		// Instances always carry their true position. Isolation moves the whole layer component
-		// afterwards, not the cells inside it.
-		Batches.FindOrAdd(MakeLayerKey(Pair.Value.Type, Pair.Value.PaletteIndex)).Add(
-			FTransform(FRotator::ZeroRotator, Grid.CellToWorld(Pair.Key), Scale));
+		const uint64 SliceKey = (uint64(uint32(MakeLayerKey(Pair.Value.Type, Pair.Value.PaletteIndex))) << 32)
+			| uint64(uint32(Pair.Key.Y));
+		Slices.FindOrAdd(SliceKey).Add(FIntPoint(Pair.Key.X, Pair.Key.Z));
+	}
+
+	// Layer key, X, Z, width, height -> the slices that rectangle was found on.
+	TMap<TTuple<int32, int32, int32, int32, int32>, TArray<int32>> SameRect;
+
+	for (const TPair<uint64, TArray<FIntPoint>>& Slice : Slices)
+	{
+		const int32 Key = int32(uint32(Slice.Key >> 32));
+		const int32 Y = int32(uint32(Slice.Key & 0xFFFFFFFFull));
+
+		FIntPoint Min(MAX_int32, MAX_int32);
+		FIntPoint Max(MIN_int32, MIN_int32);
+		for (const FIntPoint& P : Slice.Value)
+		{
+			Min = FIntPoint(FMath::Min(Min.X, P.X), FMath::Min(Min.Y, P.Y));
+			Max = FIntPoint(FMath::Max(Max.X, P.X), FMath::Max(Max.Y, P.Y));
+		}
+
+		const int32 W = Max.X - Min.X + 1;
+		const int32 H = Max.Y - Min.Y + 1;
+		TBitArray<> Bits(false, W * H);
+		for (const FIntPoint& P : Slice.Value)
+		{
+			Bits[(P.Y - Min.Y) * W + (P.X - Min.X)] = true;
+		}
+
+		for (int32 Z = 0; Z < H; ++Z)
+		{
+			for (int32 X = 0; X < W; ++X)
+			{
+				if (!Bits[Z * W + X])
+				{
+					continue;
+				}
+
+				int32 RunW = 1;
+				while (X + RunW < W && Bits[Z * W + X + RunW])
+				{
+					++RunW;
+				}
+
+				int32 RunH = 1;
+				for (; Z + RunH < H; ++RunH)
+				{
+					bool bFull = true;
+					for (int32 i = 0; i < RunW && bFull; ++i)
+					{
+						bFull = Bits[(Z + RunH) * W + X + i];
+					}
+					if (!bFull)
+					{
+						break;
+					}
+				}
+
+				for (int32 Dz = 0; Dz < RunH; ++Dz)
+				{
+					for (int32 Dx = 0; Dx < RunW; ++Dx)
+					{
+						Bits[(Z + Dz) * W + X + Dx] = false;
+					}
+				}
+
+				SameRect.FindOrAdd(MakeTuple(Key, Min.X + X, Min.Y + Z, RunW, RunH)).Add(Y);
+			}
+		}
+	}
+
+	for (TPair<TTuple<int32, int32, int32, int32, int32>, TArray<int32>>& Rect : SameRect)
+	{
+		const int32 Key = Rect.Key.Get<0>();
+		const int32 X = Rect.Key.Get<1>();
+		const int32 Z = Rect.Key.Get<2>();
+		const int32 RectW = Rect.Key.Get<3>();
+		const int32 RectH = Rect.Key.Get<4>();
+
+		TArray<int32>& Ys = Rect.Value;
+		Ys.Sort();
+
+		for (int32 Start = 0; Start < Ys.Num();)
+		{
+			int32 End = Start;
+			while (End + 1 < Ys.Num() && Ys[End + 1] == Ys[End] + 1)
+			{
+				++End;
+			}
+
+			const FBox Box = Grid.GetCellBounds(FIntVector(X, Ys[Start], Z))
+				+ Grid.GetCellBounds(FIntVector(X + RectW - 1, Ys[End], Z + RectH - 1));
+			Batches.FindOrAdd(Key).Add(FTransform(FRotator::ZeroRotator, Box.GetCenter(), Box.GetSize() / 100.0));
+			++Boxes;
+
+			Start = End + 1;
+		}
 	}
 
 	// The backdrop is derived geometry, it is not among the drawn cells. We show it as a single
@@ -292,6 +390,6 @@ void AMazePreviewActor::Rebuild(const UMazeGridAsset* Asset, const TSet<FName>& 
 		}
 	}
 
-	UE_LOG(LogMazeForge, Verbose, TEXT("Preview: %d instances, %d hidden ones culled."),
-		Grid.Cells.Num() - Culled, Culled);
+	UE_LOG(LogMazeForge, Verbose, TEXT("Preview: %d boxes for %d cells."),
+		Boxes, Grid.Cells.Num());
 }

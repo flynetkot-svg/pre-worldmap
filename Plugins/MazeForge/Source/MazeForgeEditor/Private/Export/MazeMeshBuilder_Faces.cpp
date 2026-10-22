@@ -178,6 +178,27 @@ bool FMazeMeshBuilder_Faces::Build(const FMazeBakeRequest& Request, FMazeBakeRes
 	TArray<FMazeQuad> Quads;
 	TArray<FMazeSurface> Surfaces;
 
+	// With merging on, a visible face is not turned into a quad on the spot: it is filed under
+	// its direction, its layer along that direction and its surface, by its two in-plane
+	// coordinates, and the faces of each file are joined into rectangles afterwards.
+	const bool bMerge = !Request.Settings || Request.Settings->bMergeCoplanarFaces;
+	TMap<TTuple<int32, int32, int32>, TArray<FIntPoint>> FacePlanes; // (face, layer, surface) -> (u, v)
+
+	// Face 0/1 lie across X, 2/3 across Y, 4/5 across Z; the other two axes are (u, v).
+	auto ToPlane = [](int32 Face, const FIntVector& Cell, int32& OutLayer) -> FIntPoint
+	{
+		if (Face < 2) { OutLayer = Cell.X; return FIntPoint(Cell.Y, Cell.Z); }
+		if (Face < 4) { OutLayer = Cell.Y; return FIntPoint(Cell.X, Cell.Z); }
+		OutLayer = Cell.Z;
+		return FIntPoint(Cell.X, Cell.Y);
+	};
+	auto FromPlane = [](int32 Face, int32 Layer, int32 U, int32 V) -> FIntVector
+	{
+		if (Face < 2) { return FIntVector(Layer, U, V); }
+		if (Face < 4) { return FIntVector(U, Layer, V); }
+		return FIntVector(U, V, Layer);
+	};
+
 	// Derived geometry — world borders and the backdrop — has no cell of its own in the grid,
 	// so it falls back to the Solid surface. That is deliberate: it is the same mass of the maze,
 	// only produced by a rule instead of a brush stroke.
@@ -261,11 +282,93 @@ bool FMazeMeshBuilder_Faces::Build(const FMazeBakeRequest& Request, FMazeBakeRes
 						continue;
 					}
 
+					if (bMerge)
+					{
+						int32 Layer = 0;
+						const FIntPoint UV = ToPlane(Face, Cell, Layer);
+						FacePlanes.FindOrAdd(MakeTuple(Face, Layer, Surface)).Add(UV);
+						continue;
+					}
+
 					FMazeQuad Quad;
 					MakeQuad(CellBounds, Face, Quad);
 					Quad.Surface = Surface;
 					Quads.Add(Quad);
 				}
+			}
+		}
+	}
+
+	// Greedy rectangles per plane: widest run along u first, then as many rows along v as
+	// carry the same run whole. Every corner stays on the cell lattice, and the quad is made from
+	// the bounds of the cells it covers, so position, normal and UVs come out as the cells' did.
+	for (const TPair<TTuple<int32, int32, int32>, TArray<FIntPoint>>& Plane : FacePlanes)
+	{
+		const int32 Face = Plane.Key.Get<0>();
+		const int32 Layer = Plane.Key.Get<1>();
+		const int32 Surface = Plane.Key.Get<2>();
+
+		FIntPoint Min(MAX_int32, MAX_int32);
+		FIntPoint Max(MIN_int32, MIN_int32);
+		for (const FIntPoint& P : Plane.Value)
+		{
+			Min = FIntPoint(FMath::Min(Min.X, P.X), FMath::Min(Min.Y, P.Y));
+			Max = FIntPoint(FMath::Max(Max.X, P.X), FMath::Max(Max.Y, P.Y));
+		}
+
+		const int32 W = Max.X - Min.X + 1;
+		const int32 H = Max.Y - Min.Y + 1;
+		TBitArray<> Bits(false, W * H);
+		for (const FIntPoint& P : Plane.Value)
+		{
+			Bits[(P.Y - Min.Y) * W + (P.X - Min.X)] = true;
+		}
+
+		for (int32 V = 0; V < H; ++V)
+		{
+			for (int32 U = 0; U < W; ++U)
+			{
+				if (!Bits[V * W + U])
+				{
+					continue;
+				}
+
+				int32 RunU = 1;
+				while (U + RunU < W && Bits[V * W + U + RunU])
+				{
+					++RunU;
+				}
+
+				int32 RunV = 1;
+				for (; V + RunV < H; ++RunV)
+				{
+					bool bFull = true;
+					for (int32 i = 0; i < RunU && bFull; ++i)
+					{
+						bFull = Bits[(V + RunV) * W + U + i];
+					}
+					if (!bFull)
+					{
+						break;
+					}
+				}
+
+				for (int32 Dv = 0; Dv < RunV; ++Dv)
+				{
+					for (int32 Du = 0; Du < RunU; ++Du)
+					{
+						Bits[(V + Dv) * W + U + Du] = false;
+					}
+				}
+
+				const FBox Bounds =
+					Grid.GetCellBounds(FromPlane(Face, Layer, Min.X + U, Min.Y + V))
+					+ Grid.GetCellBounds(FromPlane(Face, Layer, Min.X + U + RunU - 1, Min.Y + V + RunV - 1));
+
+				FMazeQuad Quad;
+				MakeQuad(Bounds, Face, Quad);
+				Quad.Surface = Surface;
+				Quads.Add(Quad);
 			}
 		}
 	}
