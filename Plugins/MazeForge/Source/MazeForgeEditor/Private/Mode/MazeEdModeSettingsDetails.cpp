@@ -7,6 +7,11 @@
 #include "DetailCategoryBuilder.h"
 #include "DetailLayoutBuilder.h"
 #include "DetailWidgetRow.h"
+#include "Editor.h"
+#include "IDetailPropertyRow.h"
+#include "IPropertyUtilities.h"
+#include "TimerManager.h"
+#include "UObject/UObjectGlobals.h"
 #include "Mode/MazeEdModeSettings.h"
 #include "Styling/AppStyle.h"
 #include "Widgets/Colors/SColorBlock.h"
@@ -57,6 +62,8 @@ FMazeEdModeSettingsDetails::~FMazeEdModeSettingsDetails()
 	{
 		Settings->OnSettingsChanged.Remove(SettingsChangedHandle);
 	}
+
+	FCoreUObjectDelegates::OnObjectPropertyChanged.Remove(ObjectChangedHandle);
 }
 
 void FMazeEdModeSettingsDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBuilder)
@@ -87,6 +94,7 @@ void FMazeEdModeSettingsDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 	// Snapshot, Target. Every number below is a position, not a priority.
 	IDetailCategoryBuilder& Target   = DetailBuilder.EditCategory("Target");
 	IDetailCategoryBuilder& Generate = DetailBuilder.EditCategory("Generate");
+	IDetailCategoryBuilder& Features = DetailBuilder.EditCategory("Maze Features");
 	IDetailCategoryBuilder& Brush    = DetailBuilder.EditCategory("Brush");
 	IDetailCategoryBuilder& ObjectsCat = DetailBuilder.EditCategory("Objects");
 	IDetailCategoryBuilder& Display  = DetailBuilder.EditCategory("Display");
@@ -98,24 +106,31 @@ void FMazeEdModeSettingsDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 
 	Target.SetSortOrder(0);
 	Generate.SetSortOrder(1);
-	Brush.SetSortOrder(2);
-	ObjectsCat.SetSortOrder(3);
-	Display.SetSortOrder(4);
-	Snapshot.SetSortOrder(5);
-	Build.SetSortOrder(6);
-	Edit.SetSortOrder(7);
+
+	// Right under Generate: what the button will make, tuned without leaving the panel.
+	Features.SetSortOrder(2);
+	Brush.SetSortOrder(3);
+	ObjectsCat.SetSortOrder(4);
+	Display.SetSortOrder(5);
+	Snapshot.SetSortOrder(6);
+	Build.SetSortOrder(7);
+	Edit.SetSortOrder(8);
 
 	// Its own section, above Advanced rather than inside it. The world is the game as a whole
 	// rather than the maze on screen, and the one button somebody needs right after cloning the
 	// repository should not sit at the bottom of a section that is folded away by default.
-	World.SetSortOrder(8);
-	Advanced.SetSortOrder(9);
+	World.SetSortOrder(9);
+	Advanced.SetSortOrder(10);
 
 	// Folded away by default, and that is the whole point of it: the pipeline run one step at a
 	// time is what you reach for when Apply Changes has gone wrong, not what you look at daily.
 	Advanced.InitiallyCollapsed(true);
 
 	BuildGenerateRow(Generate);
+	PropertyUtilities = DetailBuilder.GetPropertyUtilities();
+	BuildMazeFeatures(Features);
+	ObjectChangedHandle = FCoreUObjectDelegates::OnObjectPropertyChanged.AddSP(
+		this, &FMazeEdModeSettingsDetails::OnObjectPropertyChanged);
 	BuildObjectPalette(ObjectsCat);
 	BuildEditRows(Edit);
 
@@ -269,6 +284,71 @@ void FMazeEdModeSettingsDetails::BuildGenerateRow(IDetailCategoryBuilder& Catego
 			.ColorAndOpacity(FSlateColor(FLinearColor(0.65f, 0.65f, 0.70f)))
 		]
 	];
+}
+
+void FMazeEdModeSettingsDetails::BuildMazeFeatures(IDetailCategoryBuilder& Category)
+{
+	UMazeGridAsset* Asset = Settings.IsValid() ? Settings->TargetAsset.LoadSynchronous() : nullptr;
+	ShownAsset = Asset;
+
+	if (!Asset)
+	{
+		Category.AddCustomRow(LOCTEXT("FeaturesEmptyFilter", "maze features"))
+		.WholeRowContent()
+		[
+			SNew(STextBlock)
+			.AutoWrapText(true)
+			.Text(LOCTEXT("FeaturesEmpty", "Pick a Target Asset — its generator and all of its settings show up here."))
+			.ColorAndOpacity(FSlateColor(FLinearColor(0.65f, 0.65f, 0.70f)))
+		];
+		return;
+	}
+
+	// The asset's own Generator property, not a copy: the class picker and every setting under
+	// it, with undo and the asset marked dirty exactly as editing the asset would.
+	const TArray<UObject*> Objects{ Asset };
+	if (IDetailPropertyRow* Row = Category.AddExternalObjectProperty(Objects,
+		GET_MEMBER_NAME_CHECKED(UMazeGridAsset, Generator)))
+	{
+		Row->DisplayName(LOCTEXT("FeaturesGenerator", "Generator"));
+		Row->ShouldAutoExpand(true);
+	}
+}
+
+void FMazeEdModeSettingsDetails::OnObjectPropertyChanged(UObject* Object, FPropertyChangedEvent& Event)
+{
+	if (Event.ChangeType == EPropertyChangeType::Interactive || *bGeneratePending)
+	{
+		return;
+	}
+
+	const UMazeEdModeSettings* Live = Settings.Get();
+	const UMazeGridAsset* Asset = ShownAsset.Get();
+	if (!Live || !Asset || !Live->bRegenerateOnChange || !Asset->Generator || !Object)
+	{
+		return;
+	}
+
+	// A setting on the generator, or the generator itself swapped for another class.
+	const bool bGeneratorSetting = Object == Asset->Generator
+		|| (Object == Asset && Event.GetMemberPropertyName() == GET_MEMBER_NAME_CHECKED(UMazeGridAsset, Generator));
+	if (!bGeneratorSetting || !GEditor)
+	{
+		return;
+	}
+
+	*bGeneratePending = true;
+	GEditor->GetTimerManager()->SetTimerForNextTick(FTimerDelegate::CreateLambda(
+		[WeakSettings = Settings, Pending = bGeneratePending]()
+		{
+			*Pending = false;
+			UMazeEdModeSettings* LiveSettings = WeakSettings.Get();
+			if (LiveSettings && !LiveSettings->IsGeneratorManual())
+			{
+				LiveSettings->GenerateMaze();
+				LiveSettings->OnSettingsChanged.Broadcast();
+			}
+		}));
 }
 
 void FMazeEdModeSettingsDetails::BuildObjectPalette(IDetailCategoryBuilder& Category)
@@ -503,6 +583,23 @@ void FMazeEdModeSettingsDetails::BuildEditRows(IDetailCategoryBuilder& Category)
 
 void FMazeEdModeSettingsDetails::OnSettingsChanged()
 {
+	// Maze Features is bound to one asset when the panel is built. A new target needs the panel
+	// built again — on the next tick, since this runs inside a broadcast this very object
+	// listens to, and a refresh now would destroy it mid-call.
+	if (Settings.IsValid() && GEditor
+		&& Settings->TargetAsset.Get() != ShownAsset.Get())
+	{
+		ShownAsset = Settings->TargetAsset.Get();
+		GEditor->GetTimerManager()->SetTimerForNextTick(FTimerDelegate::CreateLambda(
+			[WeakUtilities = PropertyUtilities]()
+			{
+				if (const TSharedPtr<IPropertyUtilities> Utilities = WeakUtilities.Pin())
+				{
+					Utilities->ForceRefresh();
+				}
+			}));
+	}
+
 	// Both rows follow the target: the surface palette follows the paint type, the object
 	// palette follows the library, and the library arrives with the target asset.
 	RebuildPalette();
