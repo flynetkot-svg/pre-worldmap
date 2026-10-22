@@ -78,6 +78,26 @@ namespace
 		return Extent.IsNearlyZero() ? Actor->GetActorLocation() : Origin;
 	}
 
+	/**
+	 *  Whether an actor still reaches into a room, in XZ. A positive overlap, not a touch: a prop
+	 *  standing flush against the room's edge is outside it.
+	 */
+	bool Overlaps(const AActor* Actor, const FBox& Room)
+	{
+		FVector Origin;
+		FVector Extent;
+		Actor->GetActorBounds(false, Origin, Extent, true);
+		return Origin.X - Extent.X < Room.Max.X && Origin.X + Extent.X > Room.Min.X
+			&& Origin.Z - Extent.Z < Room.Max.Z && Origin.Z + Extent.Z > Room.Min.Z;
+	}
+
+	/** "Crate (L_TEST_R_001_000)", or the main level when the actor sits in the persistent one. */
+	FString Describe(const AActor* Actor, const FString& LevelName)
+	{
+		return FString::Printf(TEXT("%s (%s)"), *Actor->GetActorNameOrLabel(),
+			LevelName.IsEmpty() ? TEXT("main level") : *LevelName);
+	}
+
 	/** A hand-placed actor that is the top of its attachment chain — the unit that moves. */
 	bool IsMovableRoot(const AActor* Actor, FName GeneratedTag)
 	{
@@ -242,11 +262,14 @@ FMazeDecorBindReport FMazeDecorBinder::Bind(const UMazeGridAsset* Asset)
 	// ------------------------------------------------------------ 2. what goes where
 
 	TMap<const FRoomSlot*, FMoveBatch> Batches;
-	auto Plan = [&Batches](const FRoomSlot* To, AActor* Root)
+	TArray<FString> Lines; // "Crate (L_TEST_R_001_000) -> L_TEST_R_002_000", for the dialog and the log
+	auto Plan = [&Batches, &Lines](const FRoomSlot* To, AActor* Root, const FString& FromLevel)
 	{
 		FMoveBatch& Batch = Batches.FindOrAdd(To);
 		Batch.Room = To;
 		Batch.Roots.Add(Root);
+		Lines.Add(FString::Printf(TEXT("%s -> %s"), *Describe(Root, FromLevel),
+			To ? *To->LevelAsset : TEXT("main level")));
 	};
 
 	// a. The persistent level: everything standing in a room, bar what is kept there.
@@ -273,7 +296,7 @@ FMazeDecorBindReport FMazeDecorBinder::Bind(const UMazeGridAsset* Asset)
 		}
 		else
 		{
-			Plan(Room, Actor);
+			Plan(Room, Actor, FString());
 			++Report.FromMain;
 		}
 	}
@@ -300,8 +323,11 @@ FMazeDecorBindReport FMazeDecorBinder::Bind(const UMazeGridAsset* Asset)
 				continue;
 			}
 
+			// Its own room wins while the actor still reaches into it. A prop on the line between
+			// two rooms has its centre a hair to one side or the other; moving it for that is churn,
+			// and the designer who put it into this level by hand had a room in mind.
 			const FRoomSlot* Room = RoomAt(Rooms, StandPoint(Actor));
-			if (Room == &Slot)
+			if (Room == &Slot || (Room && Overlaps(Actor, Slot.Bounds)))
 			{
 				++Report.AlreadyHome;
 			}
@@ -315,7 +341,7 @@ FMazeDecorBindReport FMazeDecorBinder::Bind(const UMazeGridAsset* Asset)
 			}
 			else
 			{
-				Plan(Room, Actor);
+				Plan(Room, Actor, Slot.LevelAsset);
 				++Report.BetweenRooms;
 			}
 		}
@@ -354,7 +380,8 @@ FMazeDecorBindReport FMazeDecorBinder::Bind(const UMazeGridAsset* Asset)
 				continue;
 			}
 
-			Plan(Room && Room->Level ? Room : nullptr, Actor);
+			Plan(Room && Room->Level ? Room : nullptr, Actor,
+				FPackageName::GetShortName(PackageName));
 			++Report.FromRetired;
 			Report.RetiredToMain += Room ? 0 : 1;
 		}
@@ -379,15 +406,35 @@ FMazeDecorBindReport FMazeDecorBinder::Bind(const UMazeGridAsset* Asset)
 
 	// ------------------------------------------------------------ 3. ask, once
 
+	// Which actors, by name, and from where to where: counts alone left the designer guessing
+	// which prop "between rooms" meant.
+	constexpr int32 MaxListed = 12;
+	FString Listed;
+	for (int32 i = 0; i < FMath::Min(Lines.Num(), MaxListed); ++i)
+	{
+		Listed += TEXT("  ") + Lines[i] + TEXT("\n");
+	}
+	if (Lines.Num() > MaxListed)
+	{
+		Listed += FString::Printf(TEXT("  ... and %d more, all listed in the log\n"), Lines.Num() - MaxListed);
+	}
+
 	const FText Question = FText::Format(
 		LOCTEXT("BindAsk",
 			"Move {0} hand-placed actor(s) into the levels of the rooms they stand in?\n\n"
-			"From the main level: {1}\nBetween rooms: {2}\nFrom abolished rooms: {3} "
-			"({4} of them stand in no room and go to the main level)\n\n"
+			"From the main level into a room: {1}\n"
+			"From one room's level into another's (the actor stands in that room now): {2}\n"
+			"Out of abolished rooms: {3} ({4} of them stand in no room and go to the main level)\n\n"
+			"{5}\n"
 			"Every level touched is saved afterwards, the main level included. References between "
 			"actors in different levels do not survive the move."),
 		Report.Planned(), Report.FromMain, Report.BetweenRooms, Report.FromRetired,
-		Report.RetiredToMain);
+		Report.RetiredToMain, FText::FromString(Listed));
+
+	for (const FString& Line : Lines)
+	{
+		UE_LOG(LogMazeForge, Log, TEXT("Bind decor: %s"), *Line);
+	}
 
 	if (FMessageDialog::Open(EAppMsgType::YesNo, Question) != EAppReturnType::Yes)
 	{

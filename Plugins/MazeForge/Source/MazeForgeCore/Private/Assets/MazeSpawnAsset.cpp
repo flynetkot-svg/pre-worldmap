@@ -47,6 +47,26 @@ int32 UMazeSpawnAsset::AddBatch(const TArray<FMazePlacement>& NewPlacements)
 	return NewPlacements.Num();
 }
 
+int32 UMazeSpawnAsset::RemoveStructural()
+{
+	if (!Placements.ContainsByPredicate([](const FMazePlacement& P) { return P.bStructural; }))
+	{
+		return 0;
+	}
+
+#if WITH_EDITOR
+	Modify();
+#endif
+
+	const int32 Removed = Placements.RemoveAll([](const FMazePlacement& Placement)
+	{
+		return Placement.bStructural;
+	});
+
+	NotifySpawnsChanged();
+	return Removed;
+}
+
 void UMazeSpawnAsset::RemoveAt(int32 Index)
 {
 	if (!Placements.IsValidIndex(Index))

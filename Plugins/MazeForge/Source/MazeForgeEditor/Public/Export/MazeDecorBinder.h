@@ -56,6 +56,8 @@ struct FMazeDecorBindReport
  *
  *  Which room: the centre of the actor's bounds, in XZ, against the room bounds the manifest
  *  lists. Depth does not matter — a backdrop far behind the play band belongs to its room.
+ *  An actor already in a room's level stays there while its bounds still reach into that room,
+ *  so a prop on the line between two rooms is not passed back and forth by its centre.
  *
  *  What moves: hand-placed actors (MazeExport::IsHandPlaced) that are not attached to another
  *  actor, with everything attached to them. Never Info actors, never actors implementing

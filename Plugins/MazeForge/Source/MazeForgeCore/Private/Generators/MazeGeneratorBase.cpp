@@ -13,6 +13,7 @@ void UMazeGeneratorBase::Execute(FMazeGrid& InOutGrid)
 	}
 
 	FRandomStream Rng(Seed);
+	StructuralPlacements.Reset();
 
 	const double StartTime = FPlatformTime::Seconds();
 	Generate(InOutGrid, Rng);
@@ -20,6 +21,14 @@ void UMazeGeneratorBase::Execute(FMazeGrid& InOutGrid)
 
 	UE_LOG(LogMazeForge, Log, TEXT("%s: generated %d cells in %.3f s (seed %d)"),
 		*GetDisplayName().ToString(), InOutGrid.NumCells(), Elapsed, Seed);
+}
+
+void UMazeGeneratorBase::AddStructuralPlacement(FMazePlacement Placement)
+{
+	Placement.bStructural = true;
+	Placement.bGenerated = false;
+	Placement.Id = 0;
+	StructuralPlacements.Add(MoveTemp(Placement));
 }
 
 FText UMazeGeneratorBase::GetDisplayName() const
