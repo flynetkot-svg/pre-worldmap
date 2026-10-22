@@ -74,7 +74,7 @@ int32 UMazeGeneratorBase::ShapeOutline(FMazeLayout2D& Layout, const FIntPoint& M
 	DeadEnds.Shapes = &DeadEndShapes;
 	DeadEnds.Length = DeadEndLength;
 	DeadEnds.MinHeight = FMath::Max(2, AgentHeightCells);
-	DeadEnds.MaxHeight = DeadEndMaxHeight;
+	DeadEnds.MaxHeight = DeadEndMaxHeight > 0 ? DeadEndMaxHeight : MAX_int32;
 	DeadEnds.Min = Min;
 	DeadEnds.Max = Max;
 	DeadEnds.Protected = &Protected;

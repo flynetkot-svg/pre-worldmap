@@ -71,7 +71,7 @@ public:
 	 *  headroom clear above every floor. The stock UE capsule is 176 cm: two cells of 100,
 	 *  four of 50.
 	 */
-	UPROPERTY(EditAnywhere, Category = "Movement", meta = (ClampMin = "1", UIMax = "8"))
+	UPROPERTY(EditAnywhere, Category = "Movement", meta = (ClampMin = "1", UIMax = "64"))
 	int32 AgentHeightCells = 2;
 
 	// ---------------------------------------------------------- shaping the outline
@@ -99,12 +99,15 @@ public:
 	 *  the passage height for a slant, half of it for an arrow or a half-circle, a quarter for
 	 *  a polygon. Always leaves at least one full-height column of the passage open.
 	 */
-	UPROPERTY(EditAnywhere, Category = "Dead Ends", meta = (ClampMin = "0", UIMax = "16"))
+	UPROPERTY(EditAnywhere, Category = "Dead Ends", meta = (ClampMin = "0", UIMax = "64"))
 	int32 DeadEndLength = 0;
 
-	/** Passages taller than this are halls, and their ends are left alone. */
-	UPROPERTY(EditAnywhere, Category = "Dead Ends", meta = (ClampMin = "2", UIMax = "32"))
-	int32 DeadEndMaxHeight = 8;
+	/**
+	 *  Passages taller than this are halls, and their ends are left alone. 0 — no limit: every
+	 *  passage end counts, however tall. The slider stops at 64; a larger number can be typed.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Dead Ends", meta = (ClampMin = "0", UIMax = "64"))
+	int32 DeadEndMaxHeight = 0;
 
 	/**
 	 *  Share of the outline changed per pass. 0 — ruler-straight.
@@ -136,7 +139,7 @@ public:
 	bool bErodeWalls = true;
 
 	/** Never bite into mass thinner than this: a wall eaten through is a passage nobody planned. */
-	UPROPERTY(EditAnywhere, Category = "Erosion", meta = (ClampMin = "1", UIMax = "8"))
+	UPROPERTY(EditAnywhere, Category = "Erosion", meta = (ClampMin = "1", UIMax = "32"))
 	int32 ErosionKeepWallCells = 2;
 
 	UMazeGeneratorBase();

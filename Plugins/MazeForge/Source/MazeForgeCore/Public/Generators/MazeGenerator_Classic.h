@@ -64,19 +64,19 @@ public:
 	// --------------------------------------------------------------------- cells
 
 	/** Length of one corridor cell along X, in grid cells. Two ladder holes must fit in it. */
-	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "2", UIMax = "16"))
+	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "2", UIMax = "128"))
 	int32 CorridorWidth = 6;
 
 	/** Clear height of a corridor. More than the character: the stock capsule is two cells. */
-	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "3", UIMax = "12"))
+	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "3", UIMax = "128"))
 	int32 CorridorHeight = 4;
 
 	/** Thickness of the walls between corridor cells. */
-	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "1", UIMax = "4"))
+	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "1", UIMax = "32"))
 	int32 WallThickness = 1;
 
 	/** Thickness of the floor slabs between rows. */
-	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "1", UIMax = "4"))
+	UPROPERTY(EditAnywhere, Category = "Cells", meta = (ClampMin = "1", UIMax = "32"))
 	int32 FloorThickness = 1;
 
 	// ------------------------------------------------------------------- ladders
@@ -90,7 +90,7 @@ public:
 	FName LadderType;
 
 	/** Width of the hole in a floor slab. Two at least: a one-cell hole catches the shoulders. */
-	UPROPERTY(EditAnywhere, Category = "Ladders", meta = (ClampMin = "2", UIMax = "6"))
+	UPROPERTY(EditAnywhere, Category = "Ladders", meta = (ClampMin = "2", UIMax = "32"))
 	int32 HoleWidth = 2;
 
 
