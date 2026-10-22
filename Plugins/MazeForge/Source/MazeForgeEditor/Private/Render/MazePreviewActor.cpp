@@ -179,7 +179,13 @@ void AMazePreviewActor::Rebuild(const UMazeGridAsset* Asset, const TSet<FName>& 
 	// and instances that jump a long way leave that tree describing where they used to be. Moving
 	// the component instead is an ordinary transform change — bounds and culling follow it the way
 	// they follow any other moved component, and the instance data never changes at all.
-	const double IsolateOffsetY = Grid.DepthCells() * Grid.CellSize.Y;
+	//
+	// How far back: the whole depth, plus a clear gap of at least ten metres. The depth alone
+	// was enough at 100 cm cells and is not at 10 cm: the pushed layers ended a single thin slice
+	// behind the active one, and in an orthographic view — whose depth buffer is stretched over
+	// the whole world — two surfaces that close are one surface, flickering between the two.
+	const double Depth = Grid.DepthCells() * Grid.CellSize.Y;
+	const double IsolateOffsetY = Depth + FMath::Max(Depth, 1000.0);
 
 	const bool bIsolate = bIsolateActive && ActiveType != EMazeCellType::Empty;
 
