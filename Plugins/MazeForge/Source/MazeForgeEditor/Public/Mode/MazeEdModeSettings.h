@@ -83,24 +83,39 @@ public:
 
 	// ------------------------------------------------------------------ reachability
 	//
-	// Can the player get everywhere from where he arrives? Walking, falling from any height,
-	// stepping or jumping up, and climbing only ladders (library types of category Climb).
-	// Starts at the Entry transition points; with none, at the lowest place to stand.
+	// Can the player get everywhere from where he arrives? Without Require Ladders: any space
+	// he fits in, in any direction — ladders and lifts are assumed to come later, and what is
+	// found is the pieces nothing could lead into. With it: walking, falling, stepping or jumping
+	// up, and climbing only Climb-category objects. Starts at the Entry transition points; with
+	// none, at the lowest place to stand.
 
-	/** How high he steps up without jumping, in cm. The stock character manages 45. */
-	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "0", UIMax = "200"))
+	/**
+	 *  Count climbing only where a ladder (any Climb object) stands. Off — every shaft he fits
+	 *  in counts as a way up, on the understanding that a ladder or a lift will stand there.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability")
+	bool bRequireLadders = false;
+
+	/** How wide the player is, in cm: the stock capsule is 84. A slit narrower than this is a wall. */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "1", UIMax = "300"))
+	int32 AgentWidthCm = 84;
+
+	/** How high he steps up without jumping, in cm. The stock character manages 45. Require Ladders only. */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "0", UIMax = "200",
+		EditCondition = "bRequireLadders"))
 	int32 StepUpCm = 45;
 
-	/** How high a jump gets him, in cm. 0 — the check assumes he does not jump: only ladders lead up. */
-	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "0", UIMax = "500"))
+	/** How high a jump gets him, in cm. 0 — the check assumes he does not jump. Require Ladders only. */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "0", UIMax = "500",
+		EditCondition = "bRequireLadders"))
 	int32 JumpHeightCm = 0;
 
 	/**
 	 *  The ladder Fix Reachability stands in a shaft that has to be climbed. Empty — the Classic
 	 *  generator's Ladder Type, if the target has one. With neither, places above the reachable
-	 *  part are reported, not fixed.
+	 *  part are reported, not fixed. Require Ladders only: without it no ladder is placed.
 	 */
-	UPROPERTY(EditAnywhere, config, Category = "Reachability")
+	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (EditCondition = "bRequireLadders"))
 	FName FixLadderType;
 
 	/** Width of the shafts Fix Reachability cuts, in cells. */
