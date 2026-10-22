@@ -8,6 +8,7 @@
 #include "Data/MazeGrid.h"
 #include "Generators/MazeGeneratorBase.h"
 #include "Generators/MazeGenerator_Manual.h"
+#include "Analysis/MazeReachabilityTool.h"
 #include "Export/MazeBakery.h"
 #include "Export/MazeDecorBinder.h"
 #include "Export/MazeExportUtils.h"
@@ -340,6 +341,25 @@ void UMazeEdModeSettings::BindDecorToRooms()
 	// only what the levels do not.
 	RefreshStatus();
 	OnSettingsChanged.Broadcast();
+}
+
+void UMazeEdModeSettings::CheckReachability()
+{
+	MazeReachabilityTool::Check(*this);
+}
+
+void UMazeEdModeSettings::FixReachability()
+{
+	MazeReachabilityTool::Fix(*this);
+	RefreshStatus();
+}
+
+void UMazeEdModeSettings::ClearReachability()
+{
+	ReachRoomStatus.Reset();
+	ReachIslandBounds.Reset();
+	ReachAsset.Reset();
+	ReachabilityStatus.Reset();
 }
 
 void UMazeEdModeSettings::ApplyChanges()

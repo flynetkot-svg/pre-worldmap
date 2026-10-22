@@ -81,6 +81,59 @@ public:
 	UPROPERTY(EditAnywhere, config, Category = "Maze Features")
 	bool bRegenerateOnChange = true;
 
+	// ------------------------------------------------------------------ reachability
+	//
+	// Can the player get everywhere from where he arrives? Walking, falling from any height,
+	// stepping or jumping up, and climbing only ladders (library types of category Climb).
+	// Starts at the Entry transition points; with none, at the lowest place to stand.
+
+	/** How high he steps up without jumping, in cm. The stock character manages 45. */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "0", UIMax = "200"))
+	int32 StepUpCm = 45;
+
+	/** How high a jump gets him, in cm. 0 — the check assumes he does not jump: only ladders lead up. */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "0", UIMax = "500"))
+	int32 JumpHeightCm = 0;
+
+	/**
+	 *  The ladder Fix Reachability stands in a shaft that has to be climbed. Empty — the Classic
+	 *  generator's Ladder Type, if the target has one. With neither, places above the reachable
+	 *  part are reported, not fixed.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability")
+	FName FixLadderType;
+
+	/** Width of the shafts Fix Reachability cuts, in cells. */
+	UPROPERTY(EditAnywhere, config, Category = "Reachability", meta = (ClampMin = "2", UIMax = "16"))
+	int32 FixShaftWidthCells = 2;
+
+	/** What the last check found. Rooms it could not reach are hatched red, rooms reached in part orange. */
+	UPROPERTY(VisibleAnywhere, Transient, Category = "Reachability")
+	FString ReachabilityStatus;
+
+	UFUNCTION(CallInEditor, Category = "Reachability",
+		meta = (DisplayName = "Check Reachability", DisplayPriority = "1"))
+	void CheckReachability();
+
+	/**
+	 *  Joins every unreachable piece to the rest: a tunnel along the floor and a shaft, with a
+	 *  ladder where the way leads up. One undo step.
+	 */
+	UFUNCTION(CallInEditor, Category = "Reachability",
+		meta = (DisplayName = "Fix Reachability", DisplayPriority = "2"))
+	void FixReachability();
+
+	/** The overlay of the last check. Room -> 1 unreachable, 2 reached in part. */
+	TMap<FName, uint8> ReachRoomStatus;
+
+	/** Bounds of the unreached pieces, drawn when the maze is not sliced into rooms yet. */
+	TArray<FIntRect> ReachIslandBounds;
+
+	/** The asset the overlay belongs to. Any change to its grid drops the overlay. */
+	TWeakObjectPtr<const UMazeGridAsset> ReachAsset;
+
+	void ClearReachability();
+
 	/**
 	 *  The state of the target in a single line: plane or volume, cells, rooms, snapshot.
 	 *
