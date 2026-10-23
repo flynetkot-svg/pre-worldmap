@@ -141,23 +141,47 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 {
 	FWorld World;
 	BuildWorld(Grid, Params, World);
+	const TBitArray<> BaseSolid = World.Solid;
+	const int32 Count = World.W * World.H;
 
 	Out = FMazeReachResult();
 	Out.Size = FIntPoint(World.W, World.H);
-	Out.Standable.Init(false, World.W * World.H);
-	Out.Reached.Init(false, World.W * World.H);
+	Out.Standable.Init(false, Count);
+	Out.Reached.Init(false, Count);
+	Out.KeyReached.Init(false, Params.Keys.Num());
+	Out.DoorOpened.Init(false, Params.Doors.Num());
 
-	for (int32 Z = 0; Z < World.H; ++Z)
+	TSet<FName> Opened;
+
+	// The mass, plus every door whose key is not in hand yet, sealed from its foot to the ceiling.
+	auto BuildPass = [&World, &BaseSolid, &Params, &Opened]()
 	{
-		for (int32 X = 0; X < World.W; ++X)
+		World.Solid = BaseSolid;
+		for (const FMazeReachLock& Door : Params.Doors)
 		{
-			if (World.Fits(X, Z) && World.Supported(X, Z))
+			if (Opened.Contains(Door.LockId))
 			{
-				Out.Standable[Z * World.W + X] = true;
-				++Out.NumStandable;
+				continue;
+			}
+			for (int32 X = FMath::Max(0, Door.Rect.Min.X); X < FMath::Min(World.W, Door.Rect.Max.X); ++X)
+			{
+				for (int32 Z = FMath::Max(0, Door.Rect.Min.Y); Z < World.H && !BaseSolid[Z * World.W + X]; ++Z)
+				{
+					World.Solid[Z * World.W + X] = true;
+				}
 			}
 		}
-	}
+
+		for (int32 X = 0; X < World.W; ++X)
+		{
+			int32 Run = 0;
+			for (int32 Z = World.H - 1; Z >= 0; --Z)
+			{
+				Run = World.Solid[Z * World.W + X] ? 0 : Run + 1;
+				World.FreeAbove[Z * World.W + X] = Run;
+			}
+		}
+	};
 
 	TArray<int32> Queue;
 	auto Push = [&World, &Out, &Queue](int32 X, int32 Z)
@@ -169,90 +193,160 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 		}
 	};
 
-	// Each start is lifted to the first height he fits at; from there gravity does the rest.
-	for (const FIntPoint& Start : Params.Starts)
+	// Whether any position he reached puts some part of him on this rectangle.
+	auto Touches = [&World, &Out](const FIntRect& Rect)
 	{
-		for (int32 Lift = 0; Lift <= World.Agent; ++Lift)
+		for (int32 Z = Rect.Min.Y - World.Agent + 1; Z < Rect.Max.Y; ++Z)
 		{
-			if (World.Fits(Start.X, Start.Y + Lift))
+			for (int32 X = Rect.Min.X - World.AgentW + 1; X < Rect.Max.X; ++X)
 			{
-				Out.UsedStarts.Add(FIntPoint(Start.X, Start.Y + Lift));
-				Push(Start.X, Start.Y + Lift);
-				break;
-			}
-		}
-	}
-
-	// No arrival point anywhere: the lowest, then leftmost, place to stand.
-	if (Out.UsedStarts.Num() == 0)
-	{
-		for (int32 Z = 0; Z < World.H && Out.UsedStarts.Num() == 0; ++Z)
-		{
-			for (int32 X = 0; X < World.W; ++X)
-			{
-				if (Out.Standable[Z * World.W + X])
+				if (World.Inside(X, Z) && Out.Reached[Z * World.W + X])
 				{
-					Out.UsedStarts.Add(FIntPoint(X, Z));
-					Push(X, Z);
-					break;
+					return true;
 				}
 			}
 		}
-	}
+		return false;
+	};
 
 	const int32 Up = FMath::Max(0, Params.ClimbUpCells);
+	const int32 MaxPasses = Params.Keys.Num() + 1;
 
-	for (int32 Head = 0; Head < Queue.Num(); ++Head)
+	for (int32 Pass = 0; Pass <= MaxPasses; ++Pass)
 	{
-		const int32 X = Queue[Head] % World.W;
-		const int32 Z = Queue[Head] / World.W;
+		BuildPass();
+		Out.Reached.Init(false, Count);
+		Queue.Reset();
 
-		if (!Params.bGravity)
+		if (Pass == 0)
 		{
-			Push(X + 1, Z);
-			Push(X - 1, Z);
-			Push(X, Z + 1);
-			Push(X, Z - 1);
-			continue;
-		}
-
-		const bool bLadder = World.OnLadder(X, Z);
-		const bool bGround = World.IsSolid(X, Z - 1);
-
-		if (!bLadder && !bGround)
-		{
-			// Falling. Straight down: steering in the air would find more, and an editor check
-			// that promises more than the player can do is worse than one that promises less.
-			Push(X, Z - 1);
-			continue;
-		}
-
-		for (const int32 Dir : { -1, 1 })
-		{
-			Push(X + Dir, Z);
-
-			// A step or a jump: up first, as far as the head has room, then across.
-			for (int32 K = 1; K <= Up && World.Fits(X, Z + K); ++K)
+			// Each start is lifted to the first height he fits at; from there gravity does the rest.
+			for (const FIntPoint& Start : Params.Starts)
 			{
-				Push(X + Dir, Z + K);
+				for (int32 Lift = 0; Lift <= World.Agent; ++Lift)
+				{
+					if (World.Fits(Start.X, Start.Y + Lift))
+					{
+						Out.UsedStarts.Add(FIntPoint(Start.X, Start.Y + Lift));
+						break;
+					}
+				}
+			}
+
+			// No arrival point anywhere: the lowest, then leftmost, place to stand.
+			for (int32 Z = 0; Z < World.H && Out.UsedStarts.Num() == 0; ++Z)
+			{
+				for (int32 X = 0; X < World.W; ++X)
+				{
+					if (World.Fits(X, Z) && World.Supported(X, Z))
+					{
+						Out.UsedStarts.Add(FIntPoint(X, Z));
+						break;
+					}
+				}
 			}
 		}
 
-		if (bLadder)
+		for (const FIntPoint& Start : Out.UsedStarts)
 		{
-			Push(X, Z + 1);
-			Push(X, Z - 1);
+			Push(Start.X, Start.Y);
+		}
 
-			// Over the top: off the last rung and on to the floor beside it, one cell up.
-			Push(X - 1, Z + 1);
-			Push(X + 1, Z + 1);
+		for (int32 Head = 0; Head < Queue.Num(); ++Head)
+		{
+			const int32 X = Queue[Head] % World.W;
+			const int32 Z = Queue[Head] / World.W;
+
+			if (!Params.bGravity)
+			{
+				Push(X + 1, Z);
+				Push(X - 1, Z);
+				Push(X, Z + 1);
+				Push(X, Z - 1);
+				continue;
+			}
+
+			const bool bLadder = World.OnLadder(X, Z);
+			const bool bGround = World.IsSolid(X, Z - 1);
+
+			if (!bLadder && !bGround)
+			{
+				// Falling. Straight down: steering in the air would find more, and an editor
+				// check that promises more than the player can do is worse than one that
+				// promises less.
+				Push(X, Z - 1);
+				continue;
+			}
+
+			for (const int32 Dir : { -1, 1 })
+			{
+				Push(X + Dir, Z);
+
+				// A step or a jump: up first, as far as the head has room, then across.
+				for (int32 K = 1; K <= Up && World.Fits(X, Z + K); ++K)
+				{
+					Push(X + Dir, Z + K);
+				}
+			}
+
+			if (bLadder)
+			{
+				Push(X, Z + 1);
+				Push(X, Z - 1);
+
+				// Over the top: off the last rung and on to the floor beside it, one cell up.
+				Push(X - 1, Z + 1);
+				Push(X + 1, Z + 1);
+			}
+		}
+
+		if (Pass == 0)
+		{
+			Out.ReachedWithoutKeys = Out.Reached;
+		}
+
+		// The keys he got to this time. A new colour opens doors, and the next pass walks on.
+		bool bNewLock = false;
+		for (int32 I = 0; I < Params.Keys.Num(); ++I)
+		{
+			if (!Out.KeyReached[I] && Touches(Params.Keys[I].Rect))
+			{
+				Out.KeyReached[I] = true;
+				if (!Params.Keys[I].LockId.IsNone() && !Opened.Contains(Params.Keys[I].LockId))
+				{
+					Opened.Add(Params.Keys[I].LockId);
+					bNewLock = true;
+				}
+			}
+		}
+
+		if (!bNewLock)
+		{
+			break;
 		}
 	}
 
-	for (int32 I = 0; I < World.W * World.H; ++I)
+	for (int32 I = 0; I < Params.Doors.Num(); ++I)
 	{
-		Out.NumReachedStandable += (Out.Standable[I] && Out.Reached[I]) ? 1 : 0;
+		Out.DoorOpened[I] = Opened.Contains(Params.Doors[I].LockId);
 	}
+
+	for (int32 Z = 0; Z < World.H; ++Z)
+	{
+		for (int32 X = 0; X < World.W; ++X)
+		{
+			const int32 I = Z * World.W + X;
+			if (World.Fits(X, Z) && World.Supported(X, Z))
+			{
+				Out.Standable[I] = true;
+				++Out.NumStandable;
+				Out.NumReachedStandable += Out.Reached[I] ? 1 : 0;
+			}
+		}
+	}
+
+	Out.Solid = World.Solid;
+	Out.FreeAbove = World.FreeAbove;
 }
 
 void MazeReachability::FindIslands(const FMazeReachResult& Result, TArray<FMazeReachIsland>& OutIslands)

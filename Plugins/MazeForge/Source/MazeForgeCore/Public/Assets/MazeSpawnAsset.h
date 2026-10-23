@@ -71,6 +71,9 @@ public:
 	/** Drops every placement the maze generator made (bStructural), and only those. */
 	int32 RemoveStructural();
 
+	/** Drops every door and key Generate Locks made, and only those. */
+	int32 RemoveLockGenerated();
+
 	/**
 	 *  The topmost placement whose footprint covers this cell, or INDEX_NONE.
 	 *

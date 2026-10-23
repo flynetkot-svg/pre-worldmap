@@ -47,6 +47,13 @@ enum class EMazeDepthApply : uint8
 	PlayBandOnly = 3
 };
 
+/** One shaded rectangle of the last reachability check: 1 unreachable, 2 reached in part, 3 behind a door. */
+struct FMazeReachOverlayRect
+{
+	FIntRect Rect;
+	uint8 Status = 0;
+};
+
 /**
  *  Mode settings. The panel is built from these UPROPERTY fields automatically.
  *
@@ -138,8 +145,59 @@ public:
 		meta = (DisplayName = "Fix Reachability", DisplayPriority = "2"))
 	void FixReachability();
 
-	/** The overlay of the last check. Room -> 1 unreachable, 2 reached in part. */
-	TMap<FName, uint8> ReachRoomStatus;
+	// ---------------------------------------------------------------------- locks
+	//
+	// Doors and keys: library types with Lock Role Door or Key, paired by the Lock Id on the
+	// placement. Check Reachability plays them out — keys behind other doors included — and
+	// reports keys that cannot be had, doors that never open, and keys too close to their door.
+
+	/** How many doors Generate Locks places, each with its key. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "0", UIMax = "16"))
+	int32 LockCount = 2;
+
+	/** The library type for doors. Empty — the first type with Lock Role Door. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks")
+	FName LockDoorType;
+
+	/** The library type for keys. Empty — the first type with Lock Role Key. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks")
+	FName LockKeyType;
+
+	/** Lock Ids handed out in turn. More locks than names — a colour opens more than one door. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks")
+	TArray<FName> LockIds = { FName(TEXT("Red")), FName(TEXT("Blue")), FName(TEXT("Yellow")) };
+
+	/**
+	 *  Rooms that must lie between a door and its key. 1 — never in the same room or in rooms
+	 *  next to each other, so the two are never loaded together around the player.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "0", UIMax = "8"))
+	int32 MinRoomsBetweenKeyAndDoor = 1;
+
+	/** A door is only worth placing if it closes off at least this many places to stand. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "1", UIMax = "10000"))
+	int32 MinLockedCells = 20;
+
+	/** Same seed, same maze — same doors and keys. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks")
+	int32 LockSeed = 1;
+
+	/**
+	 *  Places Lock Count doors where each closes off a piece of the maze, and a key for each
+	 *  where it can be had without that door, Min Rooms Between away. Doors and keys placed by
+	 *  hand stay and are taken into account; the ones from the last run are replaced.
+	 */
+	UFUNCTION(CallInEditor, Category = "Locks", meta = (DisplayName = "Generate Locks", DisplayPriority = "1"))
+	void GenerateLocks();
+
+	UFUNCTION(CallInEditor, Category = "Locks", meta = (DisplayName = "Clear Generated Locks", DisplayPriority = "2"))
+	void ClearGeneratedLocks();
+
+	/** The shaded rooms of the last check. */
+	TArray<FMazeReachOverlayRect> ReachRoomOverlay;
+
+	/** Doors and keys the last check found something wrong with: framed in red. */
+	TArray<FIntRect> ReachProblemRects;
 
 	/** Bounds of the unreached pieces, drawn when the maze is not sliced into rooms yet. */
 	TArray<FIntRect> ReachIslandBounds;
@@ -176,6 +234,14 @@ public:
 	UPROPERTY(VisibleAnywhere, config, Category = "Brush",
 		meta = (EditCondition = "Tool == EMazeEditTool::Objects", EditConditionHides))
 	FName PaintObjectType;
+
+	/**
+	 *  The Lock Id given to doors and keys placed with the brush: one red key opens every red
+	 *  door. Ignored for objects that are neither.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Brush",
+		meta = (EditCondition = "Tool == EMazeEditTool::Objects", EditConditionHides))
+	FName PaintLockId = TEXT("Red");
 
 	/**
 	 *  Which depth band new objects go into.

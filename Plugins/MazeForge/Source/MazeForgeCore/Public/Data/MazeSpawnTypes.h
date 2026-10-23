@@ -75,6 +75,26 @@ enum class EMazeTransitionRole : uint8
 	Gate  = 2
 };
 
+/**
+ *  Doors and the keys to them.
+ *
+ *  Which door a key opens is not on the type but on the placement: its Lock Id, a colour or a
+ *  channel such as Red. One red key opens every red door. So one door type and one key type
+ *  serve every colour in the game.
+ */
+UENUM(BlueprintType)
+enum class EMazeLockRole : uint8
+{
+	/** Neither. Most things. */
+	None = 0,
+
+	/** Closes the passage it stands in, floor to ceiling, until its key has been picked up. */
+	Door = 1,
+
+	/** Picked up on touch; opens every door with the same Lock Id. */
+	Key = 2
+};
+
 /** How an object decides which way it faces. */
 UENUM(BlueprintType)
 enum class EMazeFacingMode : uint8
@@ -229,6 +249,14 @@ struct MAZEFORGECORE_API FMazeObjectType
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	EMazeTransitionRole TransitionRole = EMazeTransitionRole::None;
 
+	/**
+	 *  A door or a key. The reachability check reads it — a door closes its passage until a key
+	 *  with the same Lock Id can be had — and Generate Locks places types with these roles. The
+	 *  actor itself needs a Maze Lock or a Maze Key component to act on it in the game.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
+	EMazeLockRole LockRole = EMazeLockRole::None;
+
 	bool AllowsAnchor(EMazeAnchorKind Kind) const
 	{
 		return (AllowedAnchors & (1 << static_cast<int32>(Kind))) != 0;
@@ -316,6 +344,17 @@ struct MAZEFORGECORE_API FMazePlacement
 	 */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")
 	bool bStructural = false;
+
+	/**
+	 *  For a door or a key: which keys open which doors. Any name — Red, Blue, Vault. One key
+	 *  opens every door with its Lock Id. Ignored on anything else.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
+	FName LockId;
+
+	/** Put here by Generate Locks. The next Generate Locks, or a new maze, replaces it. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")
+	bool bFromLockGenerator = false;
 
 	/** The footprint rectangle in cells, given the type that owns it. Max exclusive. */
 	FIntPoint MaxCellXZ(const FIntPoint& FootprintCells) const

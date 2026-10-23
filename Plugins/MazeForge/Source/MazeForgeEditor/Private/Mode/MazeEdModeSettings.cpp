@@ -354,9 +354,20 @@ void UMazeEdModeSettings::FixReachability()
 	RefreshStatus();
 }
 
+void UMazeEdModeSettings::GenerateLocks()
+{
+	MazeReachabilityTool::GenerateLocks(*this);
+}
+
+void UMazeEdModeSettings::ClearGeneratedLocks()
+{
+	MazeReachabilityTool::ClearGeneratedLocks(*this);
+}
+
 void UMazeEdModeSettings::ClearReachability()
 {
-	ReachRoomStatus.Reset();
+	ReachRoomOverlay.Reset();
+	ReachProblemRects.Reset();
 	ReachIslandBounds.Reset();
 	ReachAsset.Reset();
 	ReachabilityStatus.Reset();

@@ -4,6 +4,14 @@
 
 struct FMazeGrid;
 
+/** A door or a key, for the check: where it stands and which channel it belongs to. */
+struct MAZEFORGECORE_API FMazeReachLock
+{
+	/** Footprint in XZ cells, Min inclusive, Max exclusive. */
+	FIntRect Rect;
+	FName LockId;
+};
+
 /**
  *  Where the player can get to. Two models:
  *
@@ -38,6 +46,15 @@ struct MAZEFORGECORE_API FMazeReachParams
 
 	/** Ladders and other climbables: XZ rectangles of cells, Min inclusive, Max exclusive. */
 	TArray<FIntRect> Climbables;
+
+	/**
+	 *  Doors close the passage they stand in, floor to ceiling, until a key with their Lock Id
+	 *  has been reached. Keys are picked up by touching them. Keys behind other doors count: the
+	 *  check plays it out — reach what is open, pick up the keys there, open their doors, again
+	 *  until nothing new opens.
+	 */
+	TArray<FMazeReachLock> Doors;
+	TArray<FMazeReachLock> Keys;
 };
 
 /** A piece of the maze he can stand in but never gets to. */
@@ -60,6 +77,21 @@ struct MAZEFORGECORE_API FMazeReachResult
 
 	/** Every position he gets to, mid-fall included. */
 	TBitArray<> Reached;
+
+	/** Reached before any key: everything beyond is behind a door. */
+	TBitArray<> ReachedWithoutKeys;
+
+	/** Per entry of Params.Keys: picked up at some point of the play-through. */
+	TArray<bool> KeyReached;
+
+	/** Per entry of Params.Doors: its key could be had, so it opens. */
+	TArray<bool> DoorOpened;
+
+	/** The world as it ended: mass, and the doors still shut. For testing where things fit. */
+	TBitArray<> Solid;
+
+	/** Free cells from each cell upwards, itself included, in that same world. */
+	TArray<int32> FreeAbove;
 
 	/** The starts actually used, after dropping each to where he fits. */
 	TArray<FIntPoint> UsedStarts;
