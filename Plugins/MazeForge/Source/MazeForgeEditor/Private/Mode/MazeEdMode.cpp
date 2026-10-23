@@ -627,33 +627,46 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 	}
 
 	// The last reachability check: rooms the player never gets to, hatched red; rooms he gets
-	// into only in part, orange. Before slicing there are no rooms, so the pieces themselves.
+	// into only in part, orange; rooms he gets into only through a door, blue. Doors and keys
+	// with something wrong, framed red. Pieces with no room to stand for, red.
 	if (Settings->ReachAsset.Get() == Asset)
 	{
 		const FMazeLineStyle Unreached(FLinearColor(1.0f, 0.12f, 0.08f, 0.85f), 2.0f);
 		const FMazeLineStyle Partly(FLinearColor(1.0f, 0.60f, 0.10f, 0.75f), 2.0f);
+		const FMazeLineStyle Locked(FLinearColor(0.25f, 0.55f, 1.0f, 0.75f), 2.0f);
+		const FMazeLineStyle Problem(FLinearColor(1.0f, 0.05f, 0.05f, 1.0f), 5.0f);
 		const int32 Slice = Settings->ActiveDepthSlice;
 
-		for (const FMazeRoomDesc& Room : Asset->Rooms)
+		auto Corners = [Slice](const FIntRect& Rect, FIntVector& OutMin, FIntVector& OutMax)
 		{
-			if (const uint8* Status = Settings->ReachRoomStatus.Find(Room.RoomId))
-			{
-				const FMazeLineStyle& Line = (*Status == 1) ? Unreached : Partly;
-				const FIntVector Min(Room.MinXZ.X, Slice, Room.MinXZ.Y);
-				const FIntVector Max(Room.MaxXZ.X - 1, Slice, Room.MaxXZ.Y - 1);
-				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, Line);
-				FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, Line,
-					Style.RoomHatchSpacingCells, false, *Status == 1);
-			}
+			OutMin = FIntVector(Rect.Min.X, Slice, Rect.Min.Y);
+			OutMax = FIntVector(Rect.Max.X - 1, Slice, Rect.Max.Y - 1);
+		};
+
+		for (const FMazeReachOverlayRect& Shaded : Settings->ReachRoomOverlay)
+		{
+			const FMazeLineStyle& Line = Shaded.Status == 1 ? Unreached : (Shaded.Status == 2 ? Partly : Locked);
+			FIntVector Min, Max;
+			Corners(Shaded.Rect, Min, Max);
+			FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, Line);
+			FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, Line,
+				Style.RoomHatchSpacingCells, Shaded.Status == 3, Shaded.Status == 1);
 		}
 
 		for (const FIntRect& Piece : Settings->ReachIslandBounds)
 		{
-			const FIntVector Min(Piece.Min.X, Slice, Piece.Min.Y);
-			const FIntVector Max(Piece.Max.X - 1, Slice, Piece.Max.Y - 1);
+			FIntVector Min, Max;
+			Corners(Piece, Min, Max);
 			FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, Unreached);
 			FMazeGridRenderer::DrawCellHatch(PDI, Grid, Min, Max, Unreached,
 				Style.RoomHatchSpacingCells, false, true);
+		}
+
+		for (const FIntRect& Bad : Settings->ReachProblemRects)
+		{
+			FIntVector Min, Max;
+			Corners(Bad, Min, Max);
+			FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, Problem);
 		}
 	}
 
@@ -1549,6 +1562,7 @@ bool UMazeEdMode::ApplyObjectClick(bool bErase)
 	Placement.TypeId = Type->TypeId;
 	Placement.CellXZ = CellXZ;
 	Placement.Band = Settings->PaintBand;
+	Placement.LockId = Type->LockRole != EMazeLockRole::None ? Settings->PaintLockId : NAME_None;
 
 	// The hand is allowed to be wrong. A crate half sunk into a wall is sometimes exactly what
 	// the scene wants, and a brush that refuses is a brush that argues. The generator is the one

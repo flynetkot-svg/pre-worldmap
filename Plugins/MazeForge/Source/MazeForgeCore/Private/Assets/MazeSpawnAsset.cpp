@@ -67,6 +67,26 @@ int32 UMazeSpawnAsset::RemoveStructural()
 	return Removed;
 }
 
+int32 UMazeSpawnAsset::RemoveLockGenerated()
+{
+	if (!Placements.ContainsByPredicate([](const FMazePlacement& P) { return P.bFromLockGenerator; }))
+	{
+		return 0;
+	}
+
+#if WITH_EDITOR
+	Modify();
+#endif
+
+	const int32 Removed = Placements.RemoveAll([](const FMazePlacement& Placement)
+	{
+		return Placement.bFromLockGenerator;
+	});
+
+	NotifySpawnsChanged();
+	return Removed;
+}
+
 void UMazeSpawnAsset::RemoveAt(int32 Index)
 {
 	if (!Placements.IsValidIndex(Index))

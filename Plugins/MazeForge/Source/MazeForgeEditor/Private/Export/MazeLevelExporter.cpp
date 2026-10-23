@@ -798,6 +798,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				IdComponent->PlacementId = PlacementId;
 				IdComponent->TypeId = Type->TypeId;
 				IdComponent->RoomId = Room.RoomId;
+				IdComponent->LockId = Type->LockRole != EMazeLockRole::None ? Placement.LockId : NAME_None;
 				Object->AddInstanceComponent(IdComponent);
 				IdComponent->RegisterComponent();
 

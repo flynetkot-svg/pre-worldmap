@@ -96,6 +96,7 @@ void FMazeEdModeSettingsDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 	IDetailCategoryBuilder& Generate = DetailBuilder.EditCategory("Generate");
 	IDetailCategoryBuilder& Features = DetailBuilder.EditCategory("Maze Features");
 	IDetailCategoryBuilder& Reach    = DetailBuilder.EditCategory("Reachability");
+	IDetailCategoryBuilder& Locks    = DetailBuilder.EditCategory("Locks");
 	IDetailCategoryBuilder& Brush    = DetailBuilder.EditCategory("Brush");
 	IDetailCategoryBuilder& ObjectsCat = DetailBuilder.EditCategory("Objects");
 	IDetailCategoryBuilder& Display  = DetailBuilder.EditCategory("Display");
@@ -113,18 +114,19 @@ void FMazeEdModeSettingsDetails::CustomizeDetails(IDetailLayoutBuilder& DetailBu
 
 	// Right after the maze is made: can the player get everywhere in it.
 	Reach.SetSortOrder(3);
-	Brush.SetSortOrder(4);
-	ObjectsCat.SetSortOrder(5);
-	Display.SetSortOrder(6);
-	Snapshot.SetSortOrder(7);
-	Build.SetSortOrder(8);
-	Edit.SetSortOrder(9);
+	Locks.SetSortOrder(4);
+	Brush.SetSortOrder(5);
+	ObjectsCat.SetSortOrder(6);
+	Display.SetSortOrder(7);
+	Snapshot.SetSortOrder(8);
+	Build.SetSortOrder(9);
+	Edit.SetSortOrder(10);
 
 	// Its own section, above Advanced rather than inside it. The world is the game as a whole
 	// rather than the maze on screen, and the one button somebody needs right after cloning the
 	// repository should not sit at the bottom of a section that is folded away by default.
-	World.SetSortOrder(10);
-	Advanced.SetSortOrder(11);
+	World.SetSortOrder(11);
+	Advanced.SetSortOrder(12);
 
 	// Folded away by default, and that is the whole point of it: the pipeline run one step at a
 	// time is what you reach for when Apply Changes has gone wrong, not what you look at daily.

@@ -45,6 +45,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
 	FName RoomId;
 
+	/** A door's or a key's Lock Id, from its placement. None on everything else. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
+	FName LockId;
+
 	/** The placement id of an actor, or 0 if it does not carry one. Null-safe. */
 	UFUNCTION(BlueprintPure, Category = "MazeForge")
 	static int32 GetPlacementId(const AActor* Actor);

@@ -436,7 +436,10 @@ void UMazeGridAsset::RunGenerator()
 	if (UMazeSpawnAsset* SpawnAsset = Spawns.LoadSynchronous())
 	{
 		// A cleared grid takes its old ladders with it; drawing on top of a maze keeps them.
-		const int32 Removed = Generator->bClearBeforeGenerate ? SpawnAsset->RemoveStructural() : 0;
+		// The locks go with it: a door Generate Locks put in a passage of the old maze stands in
+		// a wall of the new one. Doors and keys placed by hand stay — they are the designer's.
+		const int32 Removed = Generator->bClearBeforeGenerate
+			? SpawnAsset->RemoveStructural() + SpawnAsset->RemoveLockGenerated() : 0;
 		const int32 Added = SpawnAsset->AddBatch(Structural);
 
 		if (Removed + Added > 0)
