@@ -149,6 +149,8 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 	Out.Standable.Init(false, Count);
 	Out.Reached.Init(false, Count);
 	Out.KeyReached.Init(false, Params.Keys.Num());
+	Out.KeyPass.Init(INDEX_NONE, Params.Keys.Num());
+	Out.ReachPass.Init(MAX_uint8, Count);
 	Out.DoorOpened.Init(false, Params.Doors.Num());
 
 	TSet<FName> Opened;
@@ -184,12 +186,21 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 	};
 
 	TArray<int32> Queue;
-	auto Push = [&World, &Out, &Queue](int32 X, int32 Z)
+	// Steps from the start, per position, of the pass under way; the last pass's is kept.
+	int32 Step = 0;
+	int32 PassIndex = 0;
+	auto Push = [&World, &Out, &Queue, &Step, &PassIndex](int32 X, int32 Z)
 	{
 		if (World.Fits(X, Z) && !Out.Reached[Z * World.W + X])
 		{
-			Out.Reached[Z * World.W + X] = true;
-			Queue.Add(Z * World.W + X);
+			const int32 I = Z * World.W + X;
+			Out.Reached[I] = true;
+			Out.Distance[I] = Step;
+			if (Out.ReachPass[I] == MAX_uint8)
+			{
+				Out.ReachPass[I] = static_cast<uint8>(FMath::Min(PassIndex, 254));
+			}
+			Queue.Add(I);
 		}
 	};
 
@@ -216,7 +227,10 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 	{
 		BuildPass();
 		Out.Reached.Init(false, Count);
+		Out.Distance.Init(INDEX_NONE, Count);
 		Queue.Reset();
+		PassIndex = Pass;
+		Step = 0;
 
 		if (Pass == 0)
 		{
@@ -256,6 +270,7 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 		{
 			const int32 X = Queue[Head] % World.W;
 			const int32 Z = Queue[Head] / World.W;
+			Step = Out.Distance[Queue[Head]] + 1;
 
 			if (!Params.bGravity)
 			{
@@ -312,6 +327,7 @@ void MazeReachability::Solve(const FMazeGrid& Grid, const FMazeReachParams& Para
 			if (!Out.KeyReached[I] && Touches(Params.Keys[I].Rect))
 			{
 				Out.KeyReached[I] = true;
+				Out.KeyPass[I] = Pass;
 				if (!Params.Keys[I].LockId.IsNone() && !Opened.Contains(Params.Keys[I].LockId))
 				{
 					Opened.Add(Params.Keys[I].LockId);

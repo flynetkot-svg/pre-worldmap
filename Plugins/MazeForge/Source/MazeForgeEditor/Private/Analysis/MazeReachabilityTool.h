@@ -20,4 +20,10 @@ namespace MazeReachabilityTool
 	void GenerateLocks(UMazeEdModeSettings& Settings);
 
 	void ClearGeneratedLocks(UMazeEdModeSettings& Settings);
+
+	/** Builds the path graph of the target and fills the path overlay and status line. */
+	void AnalyzePaths(UMazeEdModeSettings& Settings);
+
+	/** Tries Seed Tries seeds and keeps the one whose paths come closest to the targets. */
+	void FindSeed(UMazeEdModeSettings& Settings);
 }

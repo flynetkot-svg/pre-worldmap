@@ -13,6 +13,7 @@
 #include "Engine/LevelStreaming.h"
 #include "Engine/World.h"
 #include "Export/MazeExportUtils.h"
+#include "Generators/MazeGenerator_Classic.h"
 #include "Export/MazeLevelAttacher.h"
 #include "MazeEdModeToolkit.h"
 #include "MazeForgeCore.h"
@@ -668,6 +669,66 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 			Corners(Bad, Min, Max);
 			FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max, Problem);
 		}
+
+		// The path graph: main path yellow and thick, branches by level, markers on top.
+		static const FLinearColor LevelColours[5] = {
+			FLinearColor(1.0f, 0.85f, 0.1f), FLinearColor(0.2f, 0.85f, 1.0f), FLinearColor(0.3f, 1.0f, 0.4f),
+			FLinearColor(1.0f, 0.35f, 0.9f), FLinearColor(0.9f, 0.9f, 0.9f) };
+
+		const FVector Origin = Grid.CellToWorld(FIntVector(0, Slice, 0)) - FVector(Grid.CellSize.X, 0.0, Grid.CellSize.Z) * 0.5;
+		auto ToWorld = [&Origin, &Grid](const FVector2f& Cell)
+		{
+			return Origin + FVector(Cell.X * Grid.CellSize.X, 0.0, Cell.Y * Grid.CellSize.Z);
+		};
+
+		for (const FMazePathOverlayLine& Line : Settings->PathLines)
+		{
+			PDI->DrawLine(ToWorld(Line.A), ToWorld(Line.B), LevelColours[FMath::Min<int32>(Line.Kind, 4)],
+				SDPG_Foreground, Line.Kind == 0 ? 6.0f : 3.0f);
+		}
+
+		static const FLinearColor PointColours[5] = {
+			FLinearColor::White, FLinearColor(1.0f, 0.1f, 0.1f), FLinearColor(1.0f, 0.55f, 0.1f),
+			FLinearColor(0.1f, 1.0f, 0.2f), FLinearColor(0.2f, 0.4f, 1.0f) };
+
+		for (const FMazePathOverlayPoint& Point : Settings->PathPoints)
+		{
+			const double R = (Point.Kind >= 3 ? 1.0 : 0.5) * Grid.CellSize.X * 1.5;
+			const FVector C = ToWorld(Point.At);
+			const FLinearColor& Colour = PointColours[FMath::Min<int32>(Point.Kind, 4)];
+			PDI->DrawLine(C + FVector(-R, 0, -R), C + FVector(R, 0, R), Colour, SDPG_Foreground, 4.0f);
+			PDI->DrawLine(C + FVector(-R, 0, R), C + FVector(R, 0, -R), Colour, SDPG_Foreground, 4.0f);
+		}
+	}
+
+	// The path plan, with the Path tool in hand: main path yellow, branches cyan, points crossed.
+	if (Settings->Tool == EMazeEditTool::Path)
+	{
+		if (const UMazeGenerator_Classic* Classic = Cast<UMazeGenerator_Classic>(Asset->Generator))
+		{
+			const int32 Slice = Settings->ActiveDepthSlice;
+			auto DrawPlan = [&](const TArray<FIntPoint>& Points, const FLinearColor& Colour, float Thickness)
+			{
+				for (int32 I = 0; I < Points.Num(); ++I)
+				{
+					const FVector P = Grid.CellToWorld(FIntVector(Points[I].X, Slice, Points[I].Y));
+					const double R = Grid.CellSize.X * 2.0;
+					PDI->DrawLine(P + FVector(-R, 0, -R), P + FVector(R, 0, R), Colour, SDPG_Foreground, Thickness);
+					PDI->DrawLine(P + FVector(-R, 0, R), P + FVector(R, 0, -R), Colour, SDPG_Foreground, Thickness);
+					if (I > 0)
+					{
+						const FVector Q = Grid.CellToWorld(FIntVector(Points[I - 1].X, Slice, Points[I - 1].Y));
+						PDI->DrawLine(Q, P, Colour, SDPG_Foreground, Thickness);
+					}
+				}
+			};
+
+			DrawPlan(Classic->PlannedMainPath, FLinearColor(1.0f, 0.9f, 0.2f), 5.0f);
+			for (const FMazePlannedBranch& Branch : Classic->PlannedBranches)
+			{
+				DrawPlan(Branch.Points, FLinearColor(0.2f, 0.85f, 1.0f), 3.0f);
+			}
+		}
 	}
 
 	// The placed objects are always drawn, whichever brush is in hand: they are part of the
@@ -935,6 +996,10 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			else if (Settings->Tool == EMazeEditTool::Rooms)
 			{
 				Status += RoomHoverStatus(*Asset);
+			}
+			else if (Settings->Tool == EMazeEditTool::Path)
+			{
+				Status += TEXT("  |  PATH: click — main path point, Shift — last branch, Ctrl+Shift — new branch, Ctrl — remove");
 			}
 		}
 		else if (bViewParallelToPlane)
@@ -1279,6 +1344,21 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 			if (ViewportClient)
 			{
 				ViewportClient->Invalidate(false, false);
+			}
+
+			return true;
+		}
+
+		// The Path tool is a click too: one point per click, planned on the Classic generator.
+		if (Settings->Tool == EMazeEditTool::Path)
+		{
+			if (Event == IE_Pressed)
+			{
+				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
+				if (bHasHover && ApplyPathClick(bShift, bCtrl) && ViewportClient)
+				{
+					ViewportClient->Invalidate(false, false);
+				}
 			}
 
 			return true;
@@ -1912,6 +1992,86 @@ void UMazeEdMode::EndStroke()
 
 	StrokeChangedCells = 0;
 	bErasing = false;
+}
+
+bool UMazeEdMode::ApplyPathClick(bool bShift, bool bCtrl)
+{
+	UMazeGridAsset* Asset = GetTargetAsset();
+	UMazeGenerator_Classic* Classic = Asset ? Cast<UMazeGenerator_Classic>(Asset->Generator) : nullptr;
+	if (!Classic)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Path: the Path tool plans the Classic generator's paths — set the target's Generator to Classic."));
+		return false;
+	}
+
+	const FIntPoint Cell(HoveredCell.X, HoveredCell.Z);
+	const FScopedTransaction Transaction(LOCTEXT("MazePlanPath", "MazeForge: Plan Path"));
+	Asset->Modify();
+	Classic->Modify();
+
+	if (Classic->Style != EMazeClassicStyle::PathFirst)
+	{
+		Classic->Style = EMazeClassicStyle::PathFirst;
+		UE_LOG(LogMazeForge, Log, TEXT("Path: Classic switched to Style Path First, which reads the plan."));
+	}
+
+	if (bCtrl && !bShift)
+	{
+		// The nearest planned point, wherever it is, within a corridor's reach of the click.
+		const int32 Reach = FMath::Square(FMath::Max(4, Classic->CorridorWidth + Classic->WallThickness));
+		TArray<FIntPoint>* BestList = nullptr;
+		int32 BestIndex = INDEX_NONE;
+		int32 BestD = Reach + 1;
+
+		auto Consider = [&](TArray<FIntPoint>& List)
+		{
+			for (int32 I = 0; I < List.Num(); ++I)
+			{
+				const int32 D = FMath::Square(List[I].X - Cell.X) + FMath::Square(List[I].Y - Cell.Y);
+				if (D < BestD)
+				{
+					BestD = D;
+					BestList = &List;
+					BestIndex = I;
+				}
+			}
+		};
+
+		Consider(Classic->PlannedMainPath);
+		for (FMazePlannedBranch& Branch : Classic->PlannedBranches)
+		{
+			Consider(Branch.Points);
+		}
+
+		if (!BestList)
+		{
+			return false;
+		}
+		BestList->RemoveAt(BestIndex);
+		Classic->PlannedBranches.RemoveAll([](const FMazePlannedBranch& Branch) { return Branch.Points.Num() == 0; });
+	}
+	else if (bCtrl && bShift)
+	{
+		Classic->PlannedBranches.AddDefaulted_GetRef().Points.Add(Cell);
+	}
+	else if (bShift)
+	{
+		if (Classic->PlannedBranches.Num() == 0)
+		{
+			Classic->PlannedBranches.AddDefaulted();
+		}
+		Classic->PlannedBranches.Last().Points.Add(Cell);
+	}
+	else
+	{
+		Classic->PlannedMainPath.Add(Cell);
+	}
+
+	// Through the property system: the panel shows the new points, and Regenerate On Change
+	// builds the maze around them.
+	Classic->PostEditChange();
+	return true;
 }
 
 #undef LOCTEXT_NAMESPACE

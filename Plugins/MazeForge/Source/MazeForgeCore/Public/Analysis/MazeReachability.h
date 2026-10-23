@@ -84,6 +84,18 @@ struct MAZEFORGECORE_API FMazeReachResult
 	/** Per entry of Params.Keys: picked up at some point of the play-through. */
 	TArray<bool> KeyReached;
 
+	/**
+	 *  Per entry of Params.Keys: how many rounds of doors had to open before it could be had.
+	 *  0 — lying in the open; 1 — behind one door; INDEX_NONE — never.
+	 */
+	TArray<int32> KeyPass;
+
+	/** Per position: steps from the start in the final round, INDEX_NONE where not reached. */
+	TArray<int32> Distance;
+
+	/** Per position: the round of doors it was first reached in; MAX_uint8 — never. */
+	TArray<uint8> ReachPass;
+
 	/** Per entry of Params.Doors: its key could be had, so it opens. */
 	TArray<bool> DoorOpened;
 

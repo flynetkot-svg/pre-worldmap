@@ -455,3 +455,92 @@ int32 MazeErodeOutline(FMazeLayout2D& Layout, const FMazeErosionParams& Params, 
 
 	return Changed;
 }
+
+int32 MazeCleanOutline(FMazeLayout2D& Layout, const FIntPoint& Min, const FIntPoint& Max,
+                       int32 MaxSolidCells, int32 MaxHoleCells, const TBitArray<>* Protected)
+{
+	const int32 X0 = FMath::Max(0, Min.X);
+	const int32 Z0 = FMath::Max(0, Min.Y);
+	const int32 X1 = FMath::Min(Layout.Width(), Max.X);
+	const int32 Z1 = FMath::Min(Layout.Height(), Max.Y);
+	if (X1 <= X0 || Z1 <= Z0)
+	{
+		return 0;
+	}
+
+	const int32 W = Layout.Width();
+	TBitArray<> Seen(false, W * Layout.Height());
+	TArray<FIntPoint> Piece;
+	TArray<FIntPoint> Stack;
+	int32 Changed = 0;
+
+	// One pass per kind: a loose clump is mass with air all round it; a hole is air with mass
+	// all round it. Either one touching the edge of the area is part of something larger.
+	for (const bool bSolidPieces : { true, false })
+	{
+		Seen.SetRange(0, Seen.Num(), false);
+		const int32 MaxCells = FMath::Max(1, bSolidPieces ? MaxSolidCells : MaxHoleCells);
+
+		for (int32 Z = Z0; Z < Z1; ++Z)
+		{
+			for (int32 X = X0; X < X1; ++X)
+			{
+				if (Seen[Layout.Index(X, Z)] || Layout.IsFree(X, Z) == bSolidPieces)
+				{
+					continue;
+				}
+
+				Piece.Reset();
+				Stack.Reset();
+				Stack.Add(FIntPoint(X, Z));
+				Seen[Layout.Index(X, Z)] = true;
+				bool bSmall = true;
+				bool bTouchesEdge = false;
+				bool bProtected = false;
+
+				while (Stack.Num() > 0)
+				{
+					const FIntPoint P = Stack.Pop(EAllowShrinking::No);
+					if (Piece.Num() < MaxCells)
+					{
+						Piece.Add(P);
+					}
+					else
+					{
+						bSmall = false;
+					}
+					bProtected |= Protected && (*Protected)[Layout.Index(P.X, P.Y)];
+
+					for (const FIntPoint& D : { FIntPoint(1, 0), FIntPoint(-1, 0), FIntPoint(0, 1), FIntPoint(0, -1) })
+					{
+						const FIntPoint N = P + D;
+						if (N.X < X0 || N.Y < Z0 || N.X >= X1 || N.Y >= Z1)
+						{
+							bTouchesEdge = true;
+							continue;
+						}
+						const int32 I = Layout.Index(N.X, N.Y);
+						if (!Seen[I] && Layout.IsFree(N.X, N.Y) != bSolidPieces)
+						{
+							Seen[I] = true;
+							Stack.Add(N);
+						}
+					}
+				}
+
+				if (!bSmall || bTouchesEdge || bProtected)
+				{
+					continue;
+				}
+
+				for (const FIntPoint& P : Piece)
+				{
+					Layout.Set(P.X, P.Y, bSolidPieces ? EMazeCellType::Empty : EMazeCellType::Solid);
+				}
+				Changed += Piece.Num();
+			}
+		}
+	}
+
+	return Changed;
+}

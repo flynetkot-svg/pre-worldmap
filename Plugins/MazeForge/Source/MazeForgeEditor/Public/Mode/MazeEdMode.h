@@ -117,6 +117,9 @@ private:
 	 */
 	bool ApplyObjectClick(bool bErase);
 
+	/** The Path tool's click: plans the Classic generator's main path and branches. */
+	bool ApplyPathClick(bool bShift, bool bCtrl);
+
 	/** The object brush's verdict for the hovered cell, ready to append to the HUD line. */
 	FString ObjectHoverStatus(const UMazeGridAsset& Asset) const;
 

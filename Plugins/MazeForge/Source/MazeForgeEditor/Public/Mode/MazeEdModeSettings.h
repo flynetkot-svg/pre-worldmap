@@ -30,7 +30,13 @@ enum class EMazeEditTool : uint8
 	 *  sharing a button with the paint brush would make "what did that click just do" depend
 	 *  on a checkbox somewhere else.
 	 */
-	Rooms   = 2
+	Rooms   = 2,
+	/**
+	 *  Plan the maze's paths for the Classic generator (Style Path First): click — a point on
+	 *  the main path, Shift+click — a point on the last branch, Ctrl+Shift+click — a new branch,
+	 *  Ctrl+click — remove the nearest point.
+	 */
+	Path    = 3
 };
 
 /** How a brush stroke is spread through the depth axis Y. */
@@ -45,6 +51,21 @@ enum class EMazeDepthApply : uint8
 	AllDepth = 2,
 	/** The play band only. */
 	PlayBandOnly = 3
+};
+
+/** A stretch of the path overlay, in cells. Kind 0 — main path; 1, 2, … — branch level. */
+struct FMazePathOverlayLine
+{
+	FVector2f A = FVector2f::ZeroVector;
+	FVector2f B = FVector2f::ZeroVector;
+	uint8 Kind = 0;
+};
+
+/** A marker of the path overlay, in cells. Kind: 1 dead end, 2 junction, 3 start, 4 exit. */
+struct FMazePathOverlayPoint
+{
+	FVector2f At = FVector2f::ZeroVector;
+	uint8 Kind = 0;
 };
 
 /** One shaded rectangle of the last reachability check: 1 unreachable, 2 reached in part, 3 behind a door. */
@@ -87,6 +108,39 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, config, Category = "Maze Features")
 	bool bRegenerateOnChange = true;
+
+	// What Find Seed aims for, read off Analyze Paths. 0 — not a target.
+
+	/** Dead ends the maze should have. */
+	UPROPERTY(EditAnywhere, config, Category = "Maze Features", meta = (ClampMin = "0", UIMax = "200"))
+	int32 TargetDeadEnds = 0;
+
+	/** Average branch depth, in grid cells, the maze should at least reach. */
+	UPROPERTY(EditAnywhere, config, Category = "Maze Features", meta = (ClampMin = "0", UIMax = "1000"))
+	int32 TargetMinBranchDepth = 0;
+
+	/** Levels of branch-off-a-branch the maze should have. */
+	UPROPERTY(EditAnywhere, config, Category = "Maze Features", meta = (ClampMin = "0", UIMax = "8"))
+	int32 TargetNesting = 0;
+
+	/** Confusion score (0–100) the maze should at least reach. */
+	UPROPERTY(EditAnywhere, config, Category = "Maze Features", meta = (ClampMin = "0", ClampMax = "100"))
+	int32 TargetMinConfusion = 50;
+
+	/** How many seeds Find Seed tries. */
+	UPROPERTY(EditAnywhere, config, Category = "Maze Features", meta = (ClampMin = "1", UIMax = "200"))
+	int32 SeedTries = 20;
+
+	/**
+	 *  Generates the maze with Seed Tries seeds, analyses each, and keeps the one closest to the
+	 *  targets above. Any generator. One undo step back to before the search.
+	 */
+	UFUNCTION(CallInEditor, Category = "Maze Features", meta = (DisplayName = "Find Seed"))
+	void FindSeed();
+
+	/** Removes the main path and branches planned with the Path tool. The next generation is random again. */
+	UFUNCTION(CallInEditor, Category = "Maze Features", meta = (DisplayName = "Clear Path Plan"))
+	void ClearPathPlan();
 
 	// ------------------------------------------------------------------ reachability
 	//
@@ -145,6 +199,22 @@ public:
 		meta = (DisplayName = "Fix Reachability", DisplayPriority = "2"))
 	void FixReachability();
 
+	/**
+	 *  The maze as the player walks it: the main path from the start to the exit (a Gate point,
+	 *  or the farthest place), the branches off it, the branches off those, dead ends, loops and
+	 *  a confusion score. Drawn over the maze: main path yellow, branches by level, dead ends red.
+	 */
+	UFUNCTION(CallInEditor, Category = "Reachability",
+		meta = (DisplayName = "Analyze Paths", DisplayPriority = "3"))
+	void AnalyzePaths();
+
+	/** What the last Analyze Paths found. */
+	UPROPERTY(VisibleAnywhere, Transient, Category = "Reachability")
+	FString PathStatus;
+
+	TArray<FMazePathOverlayLine> PathLines;
+	TArray<FMazePathOverlayPoint> PathPoints;
+
 	// ---------------------------------------------------------------------- locks
 	//
 	// Doors and keys: library types with Lock Role Door or Key, paired by the Lock Id on the
@@ -173,6 +243,22 @@ public:
 	 */
 	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "0", UIMax = "8"))
 	int32 MinRoomsBetweenKeyAndDoor = 1;
+
+	/** Most rooms between a door and its key. 0 — no limit. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "0", UIMax = "64"))
+	int32 MaxRoomsBetweenKeyAndDoor = 0;
+
+	/** Most doors in a row a key may hide behind: 1 — keys lie in the open; 2 — behind one door. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "1", UIMax = "8"))
+	int32 MaxLockNesting = 3;
+
+	/** Most keys that come into reach at once, before any of their doors can be opened. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "1", UIMax = "8"))
+	int32 MaxKeysHeld = 3;
+
+	/** The most of the maze, as a share of the places to stand, one door may close off. */
+	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "0.05", ClampMax = "1"))
+	float MaxLockedShare = 0.6f;
 
 	/** A door is only worth placing if it closes off at least this many places to stand. */
 	UPROPERTY(EditAnywhere, config, Category = "Locks", meta = (ClampMin = "1", UIMax = "10000"))

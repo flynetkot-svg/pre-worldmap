@@ -11,7 +11,24 @@ enum class EMazeClassicStyle : uint8
 	LongCorridors = 0,
 
 	/** Randomised Prim: many short branches and dead ends close to the main path. */
-	Branchy = 1
+	Branchy = 1,
+
+	/**
+	 *  The main path first, from the start to the exit, then a set number of branches off it, a
+	 *  set depth each, then branches off those. What is not used stays solid unless Fill Leftover.
+	 *  The main path and branches can be planned by hand with the Path tool.
+	 */
+	PathFirst = 2
+};
+
+/** A branch planned by hand: points in grid cells (X along the level, Y up). */
+USTRUCT(BlueprintType)
+struct MAZEFORGECORE_API FMazePlannedBranch
+{
+	GENERATED_BODY()
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Path Plan")
+	TArray<FIntPoint> Points;
 };
 
 /**
@@ -92,6 +109,70 @@ public:
 	/** Width of the hole in a floor slab. Two at least: a one-cell hole catches the shoulders. */
 	UPROPERTY(EditAnywhere, Category = "Ladders", meta = (ClampMin = "2", UIMax = "32"))
 	int32 HoleWidth = 2;
+
+	// -------------------------------------------------------------- path first
+	//
+	// Style Path First only. Lengths are in corridor cells of the lattice, not grid cells.
+
+	/** 0 — the main path goes the short way; 1 — it wanders as far as it can before the exit. */
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (ClampMin = "0", ClampMax = "1",
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	float MainPathWinding = 0.5f;
+
+	/** Branches off the main path, on top of any planned by hand. */
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (ClampMin = "0", UIMax = "64",
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	int32 Branches = 6;
+
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (ClampMin = "1", UIMax = "32",
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	int32 BranchDepthMin = 2;
+
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (ClampMin = "1", UIMax = "64",
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	int32 BranchDepthMax = 6;
+
+	/** Chance each cell of a branch starts a branch of its own, up to Max Nesting levels. */
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (ClampMin = "0", ClampMax = "1",
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	float SubBranchChance = 0.15f;
+
+	/** 1 — branches only off the main path; 2 — branches off those too; and so on. */
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (ClampMin = "1", UIMax = "6",
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	int32 MaxNesting = 2;
+
+	/**
+	 *  Join every unused corridor cell on as short spurs off the branches. Off — they stay solid,
+	 *  and the maze has exactly the branches asked for.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	bool bFillLeftover = false;
+
+	/** Optional: a library type (an Entry point) stood at the start of the main path. */
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	FName StartMarkerType;
+
+	/** Optional: a library type (a Gate) stood at the end of the main path. */
+	UPROPERTY(EditAnywhere, Category = "Path First", meta = (
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	FName ExitMarkerType;
+
+	// ---------------------------------------------------------------- path plan
+	//
+	// Drawn with the Path tool in the viewport. The main path runs through its points in order,
+	// the first being the start and the last the exit; each planned branch leaves the nearest
+	// corridor already made and runs through its points. Empty — the main path is random.
+
+	UPROPERTY(EditAnywhere, Category = "Path Plan", meta = (
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	TArray<FIntPoint> PlannedMainPath;
+
+	UPROPERTY(EditAnywhere, Category = "Path Plan", meta = (
+		EditCondition = "Style == EMazeClassicStyle::PathFirst", EditConditionHides))
+	TArray<FMazePlannedBranch> PlannedBranches;
 
 
 	UMazeGenerator_Classic();
