@@ -146,6 +146,14 @@ struct FMazeErosionParams
  */
 int32 MazeErodeOutline(FMazeLayout2D& Layout, const FMazeErosionParams& Params, FRandomStream& Rng);
 
+/**
+ *  Tidies what erosion leaves behind: clumps of mass of at most MaxSolidCells hanging in the air
+ *  are removed, and pockets of air of at most MaxHoleCells closed in on every side are filled.
+ *  Inside Min..Max (Max exclusive), Protected cells untouched. Returns how many cells changed.
+ */
+int32 MazeCleanOutline(FMazeLayout2D& Layout, const FIntPoint& Min, const FIntPoint& Max,
+                       int32 MaxSolidCells, int32 MaxHoleCells, const TBitArray<>* Protected);
+
 /** Which passage ends to shape, and how. See MazeShapeDeadEnds. */
 struct FMazeDeadEndParams
 {

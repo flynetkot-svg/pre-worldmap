@@ -93,6 +93,15 @@ int32 UMazeGeneratorBase::ShapeOutline(FMazeLayout2D& Layout, const FIntPoint& M
 	Erosion.Protected = ProtectedRects.Num() > 0 ? &Protected : nullptr;
 	LastEroded = MazeErodeOutline(Layout, Erosion, Rng);
 
+	// No loose crumbs of mass, no pinholes: erosion's leftovers, never the drawing's own.
+	if (LastEroded > 0)
+	{
+		// Crumbs: what erosion sticks on is single cells, a designed ledge is longer. Holes: any
+		// closed pocket the player could not stand in anyway.
+		const int32 MaxHole = FMath::Max(2, AgentHeightCells);
+		LastEroded += MazeCleanOutline(Layout, Min, Max, 2, MaxHole, ProtectedRects.Num() > 0 ? &Protected : nullptr);
+	}
+
 	return LastEroded;
 }
 

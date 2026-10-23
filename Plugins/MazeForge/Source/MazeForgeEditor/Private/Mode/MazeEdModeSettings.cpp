@@ -7,6 +7,7 @@
 #include "Assets/MazeWorldGraph.h"
 #include "Data/MazeGrid.h"
 #include "Generators/MazeGeneratorBase.h"
+#include "Generators/MazeGenerator_Classic.h"
 #include "Generators/MazeGenerator_Manual.h"
 #include "Analysis/MazeReachabilityTool.h"
 #include "Export/MazeBakery.h"
@@ -354,6 +355,37 @@ void UMazeEdModeSettings::FixReachability()
 	RefreshStatus();
 }
 
+void UMazeEdModeSettings::FindSeed()
+{
+	MazeReachabilityTool::FindSeed(*this);
+	RefreshStatus();
+	OnSettingsChanged.Broadcast();
+}
+
+void UMazeEdModeSettings::ClearPathPlan()
+{
+	UMazeGridAsset* Asset = TargetAsset.LoadSynchronous();
+	UMazeGenerator_Classic* Classic = Asset ? Cast<UMazeGenerator_Classic>(Asset->Generator) : nullptr;
+	if (!Classic)
+	{
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("MazeClearPathPlan", "MazeForge: Clear Path Plan"));
+	Asset->Modify();
+	Classic->Modify();
+	Classic->PlannedMainPath.Reset();
+	Classic->PlannedBranches.Reset();
+
+	// Through the property system, so the panel redraws and Regenerate On Change sees it.
+	Classic->PostEditChange();
+}
+
+void UMazeEdModeSettings::AnalyzePaths()
+{
+	MazeReachabilityTool::AnalyzePaths(*this);
+}
+
 void UMazeEdModeSettings::GenerateLocks()
 {
 	MazeReachabilityTool::GenerateLocks(*this);
@@ -368,6 +400,9 @@ void UMazeEdModeSettings::ClearReachability()
 {
 	ReachRoomOverlay.Reset();
 	ReachProblemRects.Reset();
+	PathLines.Reset();
+	PathPoints.Reset();
+	PathStatus.Reset();
 	ReachIslandBounds.Reset();
 	ReachAsset.Reset();
 	ReachabilityStatus.Reset();
