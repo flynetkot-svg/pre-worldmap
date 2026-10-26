@@ -324,7 +324,7 @@ void MazeObjectGenerator::Generate(const UMazeGridAsset& Asset, UMazeSpawnAsset&
 				continue;
 			}
 
-			const int32 SliceY = MazePlacement::BandSliceY(Grid, Rule.Band);
+			const int32 SliceY = MazePlacement::AnchorSliceY(Grid, Rule.Band);
 
 			DrawQuota(RuleTypes, Wanted, Rng, Quota);
 

@@ -15,6 +15,42 @@ const FMazeObjectType* UMazeObjectLibrary::FindType(FName TypeId) const
 	});
 }
 
+FName UMazeObjectLibrary::PickVariant(FName TypeId, uint32 Hash) const
+{
+	const FMazeObjectType* Wanted = FindType(TypeId);
+	if (!Wanted || !Wanted->bRandomVariant)
+	{
+		return TypeId;
+	}
+
+	// The same role and not merely the same category: a ladder must not turn into its own
+	// platform, and a door must not turn into the key that opens it.
+	const bool bWantedTop = IsTopPiece(TypeId);
+
+	TArray<FName, TInlineAllocator<8>> Candidates;
+	for (const FMazeObjectType& Type : Types)
+	{
+		if (!Type.TypeId.IsNone()
+			&& Type.Category == Wanted->Category
+			&& Type.LockRole == Wanted->LockRole
+			&& Type.TransitionRole == Wanted->TransitionRole
+			&& IsTopPiece(Type.TypeId) == bWantedTop)
+		{
+			Candidates.Add(Type.TypeId);
+		}
+	}
+
+	return Candidates.Num() > 0 ? Candidates[Hash % static_cast<uint32>(Candidates.Num())] : TypeId;
+}
+
+bool UMazeObjectLibrary::IsTopPiece(FName TypeId) const
+{
+	return !TypeId.IsNone() && Types.ContainsByPredicate([TypeId](const FMazeObjectType& Type)
+	{
+		return Type.TopPieceType == TypeId;
+	});
+}
+
 void UMazeObjectLibrary::GetTypeIds(TArray<FName>& OutIds) const
 {
 	OutIds.Reset(Types.Num());

@@ -28,6 +28,18 @@ public:
 	/** The type with this id, or null. */
 	const FMazeObjectType* FindType(FName TypeId) const;
 
+	/**
+	 *  The type to actually place where TypeId was asked for.
+	 *
+	 *  TypeId itself, unless that type has Random Variant ticked: then any type of the same
+	 *  Category and role, chosen by Hash — the same spot always gets the same variant, so a
+	 *  regeneration with the same seed does not reshuffle them.
+	 */
+	FName PickVariant(FName TypeId, uint32 Hash) const;
+
+	/** Whether some type names this one as its Top Piece Type — a ladder's platform. */
+	bool IsTopPiece(FName TypeId) const;
+
 	/** Every id in the library, in declaration order. For the brush palette. */
 	void GetTypeIds(TArray<FName>& OutIds) const;
 

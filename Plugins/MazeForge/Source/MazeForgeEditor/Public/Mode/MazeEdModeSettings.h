@@ -36,7 +36,13 @@ enum class EMazeEditTool : uint8
 	 *  the main path, Shift+click — a point on the last branch, Ctrl+Shift+click — a new branch,
 	 *  Ctrl+click — remove the nearest point.
 	 */
-	Path    = 3
+	Path    = 3,
+	/**
+	 *  Stand a ladder in a hole: click anywhere in the shaft — the ladder goes on the floor
+	 *  under the cursor, its platform on the upper floor's level at the top of the hole.
+	 *  Shift+click — remove the ladder there. Which ladder: a Climb swatch in the palette.
+	 */
+	Ladder  = 4
 };
 
 /** How a brush stroke is spread through the depth axis Y. */
@@ -316,9 +322,13 @@ public:
 		meta = (EditCondition = "Tool == EMazeEditTool::Cells", EditConditionHides))
 	EMazeCellType PaintType = EMazeCellType::Solid;
 
-	/** Which object type is being placed. Set by clicking a swatch in the object palette. */
+	/**
+	 *  Which object type is being placed. Set by clicking a swatch in the object palette: a
+	 *  Climb type picks the Ladder tool, anything else the object brush.
+	 */
 	UPROPERTY(VisibleAnywhere, config, Category = "Brush",
-		meta = (EditCondition = "Tool == EMazeEditTool::Objects", EditConditionHides))
+		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Ladder",
+			EditConditionHides))
 	FName PaintObjectType;
 
 	/**

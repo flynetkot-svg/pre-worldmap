@@ -256,6 +256,12 @@ public:
 	 */
 	void FillBackWall(uint8 Variant = 0);
 
+	/**
+	 *  Give every cell a random surface variant from the build settings palette, the same one
+	 *  across a square patch of PatchCells. Types with one surface are left alone.
+	 */
+	void RandomizeSurfaceVariants(int32 PatchCells, uint32 Seed);
+
 	/** Removes every back wall cell. The maze itself is untouched. */
 	void ClearBackWall();
 

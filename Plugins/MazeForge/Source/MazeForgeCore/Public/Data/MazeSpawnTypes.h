@@ -257,6 +257,34 @@ struct MAZEFORGECORE_API FMazeObjectType
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	EMazeLockRole LockRole = EMazeLockRole::None;
 
+	// ------------------------------------------------------------------ ladder
+
+	/**
+	 *  For a ladder: the platform stood at the top of the hole it climbs to.
+	 *
+	 *  A ladder is two pieces. This one — the ladder itself — stands on the lower floor; the
+	 *  platform's pivot goes on the upper floor's level, at the top of the hole, above the
+	 *  ladder. The Ladder tool, the Classic generator and Fix Reachability all put both down.
+	 *  Give the platform type the Free anchor: there is a hole under it, not a floor.
+	 *  Empty — a one-piece ladder.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ladder")
+	FName TopPieceType;
+
+	// ------------------------------------------------------------------ variants
+
+	/**
+	 *  Mix with the other types of the same Category when placed for you.
+	 *
+	 *  Wherever this type is named as THE type to place — a generator's Ladder Type, the Ladder
+	 *  tool, Fix Reachability, Generate Locks, the start and exit markers — each placement may
+	 *  get any library type of the same Category and the same role (door, key, transition, a
+	 *  ladder's platform or not), picked at random but the same pick every time for the same
+	 *  spot. Generate Objects mixes on its own already: a rule with Target = Category.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Variants")
+	bool bRandomVariant = false;
+
 	bool AllowsAnchor(EMazeAnchorKind Kind) const
 	{
 		return (AllowedAnchors & (1 << static_cast<int32>(Kind))) != 0;

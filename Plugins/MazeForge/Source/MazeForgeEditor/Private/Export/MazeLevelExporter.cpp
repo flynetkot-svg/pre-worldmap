@@ -684,7 +684,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				continue;
 			}
 
-			const int32 SliceY = MazePlacement::BandSliceY(Grid, Placement.Band);
+			const int32 SliceY = MazePlacement::AnchorSliceY(Grid, Placement.Band);
 
 			// The brush lets the hand be wrong; the export does not let the world be wrong. The
 			// placement is measured against the geometry as it stands NOW, because the wall it

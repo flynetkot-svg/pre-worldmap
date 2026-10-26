@@ -62,6 +62,22 @@ public:
 		meta = (ClampMin = "0", ClampMax = "63", EditCondition = "bFillBackWallAfterGenerate"))
 	int32 BackWallVariant = 0;
 
+	/**
+	 *  Mix the surface variants of the palette (Build Settings) over the generated maze —
+	 *  mass, floor, back wall — instead of painting everything with the first one.
+	 *  The pick is random but repeats with the same Seed.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Generation")
+	bool bRandomSurfaceVariants = false;
+
+	/**
+	 *  One variant per square patch of this many cells. 1 — every cell on its own: noisy, and
+	 *  every seam between two materials is a face the bake cannot merge.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Generation",
+		meta = (ClampMin = "1", UIMax = "64", EditCondition = "bRandomSurfaceVariants"))
+	int32 SurfaceVariantPatchCells = 8;
+
 	// ------------------------------------------------------------------ movement
 
 	/**

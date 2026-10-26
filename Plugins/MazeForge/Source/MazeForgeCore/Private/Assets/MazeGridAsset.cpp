@@ -5,6 +5,7 @@
 #include "Assets/MazeSpawnAsset.h"
 #include "Generators/MazeGenerator_Manual.h"
 #include "MazeForgeCore.h"
+#include "Spawner/MazeLadders.h"
 #include "Slicers/MazeSlicer_UniformGrid.h"
 
 #define LOCTEXT_NAMESPACE "MazeForge"
@@ -432,9 +433,37 @@ void UMazeGridAsset::RunGenerator()
 
 	// The ladders and anything else the maze cannot be walked without. Into the spawn asset,
 	// because the grid holds mass only; see UMazeGeneratorBase::GetStructuralPlacements.
-	const TArray<FMazePlacement>& Structural = Generator->GetStructuralPlacements();
+	TArray<FMazePlacement> Structural = Generator->GetStructuralPlacements();
 	if (UMazeSpawnAsset* SpawnAsset = Spawns.LoadSynchronous())
 	{
+		const UMazeObjectLibrary* Library = SpawnAsset->Library.LoadSynchronous();
+
+		// Here and not in the generators, because only here is the library at hand: the variant
+		// each one gets, and the platform at the top of every ladder whose type names one.
+		if (Library)
+		{
+			const uint32 Seed = static_cast<uint32>(Generator->Seed);
+			const int32 PlaneY = Grid.Depth.PlaneCellY();
+			const int32 Asked = Structural.Num();
+
+			for (int32 Index = 0; Index < Asked; ++Index)
+			{
+				FMazePlacement& Piece = Structural[Index];
+				Piece.TypeId = Library->PickVariant(Piece.TypeId, MazeLadders::SpotHash(Piece.CellXZ, Seed));
+
+				const FMazeObjectType* Type = Library->FindType(Piece.TypeId);
+				FMazeShaft Shaft;
+				FMazePlacement Top;
+				if (Type && !Type->TopPieceType.IsNone()
+					&& MazeLadders::FindShaft(Grid, PlaneY, Piece.CellXZ, Shaft)
+					&& MazeLadders::MakeTopPiece(Grid, Library, Piece.TypeId, Piece.CellXZ.X, Shaft.TopZ, Top))
+				{
+					Top.bStructural = true;
+					Structural.Add(Top); // invalidates Piece — not touched again
+				}
+			}
+		}
+
 		// A cleared grid takes its old ladders with it; drawing on top of a maze keeps them.
 		// The locks go with it: a door Generate Locks put in a passage of the old maze stands in
 		// a wall of the new one. Doors and keys placed by hand stay — they are the designer's.
@@ -449,7 +478,6 @@ void UMazeGridAsset::RunGenerator()
 				*GetName(), Removed, Added);
 		}
 
-		const UMazeObjectLibrary* Library = SpawnAsset->Library.LoadSynchronous();
 		if (Structural.Num() > 0 && (!Library || !Library->FindType(Structural[0].TypeId)))
 		{
 			UE_LOG(LogMazeForge, Warning,
@@ -477,7 +505,56 @@ void UMazeGridAsset::RunGenerator()
 		FillBackWall(static_cast<uint8>(FMath::Clamp(Generator->BackWallVariant, 0, 255)));
 	}
 
+	// Last, so the back wall gets mixed as well.
+	if (Generator->bRandomSurfaceVariants)
+	{
+		RandomizeSurfaceVariants(Generator->SurfaceVariantPatchCells, static_cast<uint32>(Generator->Seed));
+	}
+
 	NotifyGridChanged();
+}
+
+void UMazeGridAsset::RandomizeSurfaceVariants(int32 PatchCells, uint32 Seed)
+{
+	const UMazeBuildSettings* Settings = BuildSettings.LoadSynchronous();
+	if (!Settings)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("%s: Random Surface Variants needs Build Settings — the variants live in its palette."),
+			*GetName());
+		return;
+	}
+
+#if WITH_EDITOR
+	Modify();
+#endif
+
+	const int32 Patch = FMath::Max(1, PatchCells);
+	int32 Painted = 0;
+
+	// By patch of X and Z and not by cell, and the same for every depth slice: one cell of
+	// brick next to one of rock reads as noise, and every seam between two materials is a
+	// face the bake can no longer merge.
+	for (TPair<FIntVector, FMazeCell>& Pair : Grid.Cells)
+	{
+		FMazeCell& Cell = Pair.Value;
+		const int32 Variants = Settings->NumVariants(Cell.Type);
+		if (Variants <= 1)
+		{
+			continue;
+		}
+
+		const FIntPoint PatchXZ(FMath::FloorToInt(Pair.Key.X / static_cast<float>(Patch)),
+		                        FMath::FloorToInt(Pair.Key.Z / static_cast<float>(Patch)));
+		const uint32 Hash = HashCombine(HashCombine(GetTypeHash(PatchXZ),
+			GetTypeHash(static_cast<uint8>(Cell.Type))), Seed);
+
+		Cell.PaletteIndex = static_cast<uint8>(Hash % static_cast<uint32>(Variants));
+		++Painted;
+	}
+
+	UE_LOG(LogMazeForge, Log, TEXT("%s: %d cell(s) given random surface variants, in patches of %d."),
+		*GetName(), Painted, Patch);
 }
 
 void UMazeGridAsset::SliceIntoRooms()

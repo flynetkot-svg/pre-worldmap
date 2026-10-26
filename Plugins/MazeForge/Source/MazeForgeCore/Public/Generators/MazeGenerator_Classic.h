@@ -101,7 +101,9 @@ public:
 	/**
 	 *  The library type stood in every hole. Category Climb, Anchor Floor, and a footprint as
 	 *  tall as Corridor Height + Floor Thickness — the generator logs the number. Empty — no
-	 *  ladders: the holes can be fallen through and never climbed.
+	 *  ladders: the holes can be fallen through and never climbed. If the type names a Top Piece
+	 *  Type, its platform is put on the upper floor's level above every ladder; with Random
+	 *  Variant ticked on the type, the ladders mix with the other Climb types.
 	 */
 	UPROPERTY(EditAnywhere, Category = "Ladders")
 	FName LadderType;

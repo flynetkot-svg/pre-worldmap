@@ -24,6 +24,7 @@
 #include "Assets/MazeWorldManifest.h"
 #include "Slicers/MazeRoomSlicerBase.h"
 #include "Slicers/MazeSlicer_UniformGrid.h"
+#include "Spawner/MazeLadders.h"
 #include "Spawner/MazePlacementRules.h"
 #include "SceneView.h"
 #include "Editor.h"
@@ -816,6 +817,27 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 			}
 		}
 	}
+	else if (Settings->Tool == EMazeEditTool::Ladder)
+	{
+		// The ladder's column green and the platform's row amber, where they would go; the cell
+		// alone in red when there is no shaft here to stand one in.
+		const int32 SliceY = Grid.Depth.PlaneCellY();
+		FMazeShaft Shaft;
+		if (MazeLadders::FindShaft(Grid, SliceY, FIntPoint(HoveredCell.X, HoveredCell.Z), Shaft))
+		{
+			FMazeGridRenderer::DrawCellHighlight(PDI, Grid,
+				FIntVector(Shaft.Bottom.X, SliceY, Shaft.Bottom.Y),
+				FIntVector(Shaft.Bottom.X, SliceY, Shaft.TopZ - 1), Style.BrushPaint);
+			FMazeGridRenderer::DrawCellHighlight(PDI, Grid,
+				FIntVector(Shaft.Bottom.X, SliceY, Shaft.TopZ),
+				FIntVector(Shaft.Bottom.X, SliceY, Shaft.TopZ), Style.BrushBlocked);
+		}
+		else
+		{
+			const FIntVector Cell(HoveredCell.X, SliceY, HoveredCell.Z);
+			FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Cell, Cell, Style.BrushErase);
+		}
+	}
 	else if (Settings->Tool == EMazeEditTool::Objects)
 	{
 		// The footprint rectangle, in the colour of what would happen: green it fits, red the
@@ -832,7 +854,7 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 			? FIntPoint(FMath::Max(1, Type->FootprintCells.X), FMath::Max(1, Type->FootprintCells.Y))
 			: FIntPoint(1, 1);
 
-		const int32 SliceY = MazePlacement::BandSliceY(Grid, Settings->PaintBand);
+		const int32 SliceY = MazePlacement::AnchorSliceY(Grid, Settings->PaintBand);
 		const FIntPoint CellXZ(HoveredCell.X, HoveredCell.Z);
 
 		EMazeAnchorKind Anchor = EMazeAnchorKind::Floor;
@@ -845,8 +867,10 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 		const bool bBlocked = bFits && Spawns
 			&& Spawns->FindOverlapping(Library, CellXZ, Size) != INDEX_NONE;
 
-		const FIntVector Min(CellXZ.X, SliceY, CellXZ.Y);
-		const FIntVector Max(CellXZ.X + Size.X - 1, SliceY, CellXZ.Y + Size.Y - 1);
+		// Fitted against AnchorSliceY, but drawn where the object will actually stand.
+		const int32 DrawSliceY = MazePlacement::BandSliceY(Grid, Settings->PaintBand);
+		const FIntVector Min(CellXZ.X, DrawSliceY, CellXZ.Y);
+		const FIntVector Max(CellXZ.X + Size.X - 1, DrawSliceY, CellXZ.Y + Size.Y - 1);
 
 		FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Min, Max,
 			!bFits ? Style.BrushErase : (bBlocked ? Style.BrushBlocked : Style.BrushPaint));
@@ -996,6 +1020,10 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			else if (Settings->Tool == EMazeEditTool::Rooms)
 			{
 				Status += RoomHoverStatus(*Asset);
+			}
+			else if (Settings->Tool == EMazeEditTool::Ladder)
+			{
+				Status += LadderHoverStatus(*Asset);
 			}
 			else if (Settings->Tool == EMazeEditTool::Path)
 			{
@@ -1364,6 +1392,21 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 			return true;
 		}
 
+		// So is the Ladder tool: one ladder per click.
+		if (Settings->Tool == EMazeEditTool::Ladder)
+		{
+			if (Event == IE_Pressed)
+			{
+				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
+				if (bHasHover && ApplyLadderClick(bShift) && ViewportClient)
+				{
+					ViewportClient->Invalidate(false, false);
+				}
+			}
+
+			return true;
+		}
+
 		// The object brush is a click, not a stroke, so it never enters the paint machinery:
 		// no transaction spanning a drag, no box fill, nothing to leave open.
 		if (Settings->Tool == EMazeEditTool::Objects)
@@ -1554,7 +1597,7 @@ FString UMazeEdMode::ObjectHoverStatus(const UMazeGridAsset& Asset) const
 	}
 
 	const FMazeGrid& Grid = Asset.Grid;
-	const int32 SliceY = MazePlacement::BandSliceY(Grid, Settings->PaintBand);
+	const int32 SliceY = MazePlacement::AnchorSliceY(Grid, Settings->PaintBand);
 	const FIntPoint CellXZ(HoveredCell.X, HoveredCell.Z);
 
 	const FString Reason = MazePlacement::DescribeMisfit(Grid, *Type, CellXZ, SliceY);
@@ -1636,7 +1679,7 @@ bool UMazeEdMode::ApplyObjectClick(bool bErase)
 	}
 
 	const FMazeGrid& Grid = Asset->Grid;
-	const int32 SliceY = MazePlacement::BandSliceY(Grid, Settings->PaintBand);
+	const int32 SliceY = MazePlacement::AnchorSliceY(Grid, Settings->PaintBand);
 
 	FMazePlacement Placement;
 	Placement.TypeId = Type->TypeId;
@@ -1664,6 +1707,162 @@ bool UMazeEdMode::ApplyObjectClick(bool bErase)
 
 	const FScopedTransaction Transaction(LOCTEXT("MazePlaceObject", "MazeForge: Place Object"));
 	Spawns->Add(Placement);
+	return true;
+}
+
+// ---------------------------------------------------------------- ladders
+
+namespace
+{
+	/**
+	 *  The ladder the Ladder tool stands: the Climb type picked in the palette, else the one
+	 *  Fix Reachability uses, else the Classic generator's.
+	 */
+	FName ResolveLadderToolType(const UMazeEdModeSettings& Settings, const UMazeGridAsset& Asset,
+	                            const UMazeObjectLibrary* Library)
+	{
+		const FMazeObjectType* Picked = Library ? Library->FindType(Settings.PaintObjectType) : nullptr;
+		if (Picked && Picked->Category == EMazeObjectCategory::Climb && !Library->IsTopPiece(Picked->TypeId))
+		{
+			return Picked->TypeId;
+		}
+
+		if (!Settings.FixLadderType.IsNone())
+		{
+			return Settings.FixLadderType;
+		}
+
+		const UMazeGenerator_Classic* Classic = Cast<UMazeGenerator_Classic>(Asset.Generator);
+		return Classic ? Classic->LadderType : NAME_None;
+	}
+
+	/** Every ladder piece — a Climb type or a platform — whose footprint crosses column X between MinZ and MaxZ. */
+	void FindLadderPieces(const UMazeSpawnAsset& Spawns, const UMazeObjectLibrary* Library,
+	                      int32 X, int32 MinZ, int32 MaxZ, TArray<int32>& OutIndices)
+	{
+		for (int32 Index = 0; Index < Spawns.Placements.Num(); ++Index)
+		{
+			const FMazePlacement& Piece = Spawns.Placements[Index];
+			const FMazeObjectType* Type = Library ? Library->FindType(Piece.TypeId) : nullptr;
+			if (!Type || (Type->Category != EMazeObjectCategory::Climb && !Library->IsTopPiece(Piece.TypeId)))
+			{
+				continue;
+			}
+
+			const FIntPoint Max = Piece.MaxCellXZ(Type->FootprintCells);
+			if (Piece.CellXZ.X <= X && X < Max.X && Piece.CellXZ.Y <= MaxZ && MinZ < Max.Y)
+			{
+				OutIndices.Add(Index);
+			}
+		}
+	}
+}
+
+FString UMazeEdMode::LadderHoverStatus(const UMazeGridAsset& Asset) const
+{
+	const UMazeObjectLibrary* Library = Settings->GetObjectLibrary();
+	const FName LadderType = ResolveLadderToolType(*Settings, Asset, Library);
+
+	FString Status = LadderType.IsNone()
+		? FString(TEXT("  |  LADDER: NO LADDER TYPE — click a Climb swatch in the palette"))
+		: FString::Printf(TEXT("  |  LADDER '%s': click — stand it, Shift — remove"), *LadderType.ToString());
+
+	FMazeShaft Shaft;
+	const FMazeGrid& Grid = Asset.Grid;
+	if (MazeLadders::FindShaft(Grid, Grid.Depth.PlaneCellY(), FIntPoint(HoveredCell.X, HoveredCell.Z), Shaft))
+	{
+		Status += FString::Printf(TEXT("  |  floor Z %d -> upper floor Z %d (%d cells)"),
+			Shaft.Bottom.Y, Shaft.TopZ, Shaft.TopZ - Shaft.Bottom.Y);
+	}
+	else
+	{
+		Status += TEXT("  |  NO SHAFT HERE — the cursor must be in empty space with a hole in the ceiling above it");
+	}
+
+	return Status;
+}
+
+bool UMazeEdMode::ApplyLadderClick(bool bErase)
+{
+	UMazeGridAsset* Asset = GetTargetAsset();
+	UMazeSpawnAsset* Spawns = Settings ? Settings->GetSpawnAsset() : nullptr;
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+
+	if (!Asset || !Spawns)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Ladder: the target has no Spawns asset set — nothing to place into."));
+		return false;
+	}
+
+	const FMazeGrid& Grid = Asset->Grid;
+	const FIntPoint CellXZ(HoveredCell.X, HoveredCell.Z);
+
+	FMazeShaft Shaft;
+	const bool bShaft = MazeLadders::FindShaft(Grid, Grid.Depth.PlaneCellY(), CellXZ, Shaft);
+
+	if (bErase)
+	{
+		// The whole ladder: from its floor to its platform. Without a shaft, whatever ladder
+		// piece is under the cursor.
+		TArray<int32> Doomed;
+		FindLadderPieces(*Spawns, Library, CellXZ.X,
+			bShaft ? Shaft.Bottom.Y : CellXZ.Y, bShaft ? Shaft.TopZ : CellXZ.Y, Doomed);
+		if (Doomed.Num() == 0)
+		{
+			return false;
+		}
+
+		const FScopedTransaction Transaction(LOCTEXT("MazeEraseLadder", "MazeForge: Remove Ladder"));
+		for (int32 Index = Doomed.Num() - 1; Index >= 0; --Index)
+		{
+			Spawns->RemoveAt(Doomed[Index]);
+		}
+		return true;
+	}
+
+	const FName LadderType = ResolveLadderToolType(*Settings, *Asset, Library);
+	if (LadderType.IsNone() || !Library || !Library->FindType(LadderType))
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Ladder: no ladder type%s. Click a Climb swatch in the palette, or set Fix Ladder "
+			     "Type, or Ladder Type on the Classic generator."),
+			LadderType.IsNone() ? TEXT("") : *FString::Printf(TEXT(" — '%s' is not in the library"), *LadderType.ToString()));
+		return false;
+	}
+
+	if (!bShaft)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Ladder: no shaft at X %d Z %d — the cursor must be in empty space with a floor below "
+			     "and a hole in the ceiling straight above."), CellXZ.X, CellXZ.Y);
+		return false;
+	}
+
+	// One ladder per shaft column: clicking again replaces it rather than doubling it.
+	TArray<int32> Existing;
+	FindLadderPieces(*Spawns, Library, Shaft.Bottom.X, Shaft.Bottom.Y, Shaft.TopZ, Existing);
+
+	TArray<FMazePlacement> Pieces;
+	const FName Used = MazeLadders::MakeLadder(Grid, Library, LadderType, Shaft, 0, Pieces);
+
+	const FScopedTransaction Transaction(LOCTEXT("MazePlaceLadder", "MazeForge: Place Ladder"));
+	for (int32 Index = Existing.Num() - 1; Index >= 0; --Index)
+	{
+		Spawns->RemoveAt(Existing[Index]);
+	}
+	for (const FMazePlacement& Piece : Pieces)
+	{
+		Spawns->Add(Piece);
+	}
+
+	const FMazeObjectType* UsedType = Library->FindType(Used);
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Ladder: '%s' at X %d, floor Z %d, upper floor Z %d%s."),
+		*Used.ToString(), Shaft.Bottom.X, Shaft.Bottom.Y, Shaft.TopZ,
+		Pieces.Num() > 1
+			? *FString::Printf(TEXT(", platform '%s'"), *Pieces[1].TypeId.ToString())
+			: (UsedType && !UsedType->TopPieceType.IsNone() ? TEXT("") : TEXT(", no platform — the type names no Top Piece Type")));
 	return true;
 }
 

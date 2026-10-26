@@ -402,6 +402,7 @@ void FMazeEdModeSettingsDetails::RebuildObjectPalette()
 
 		const FName TypeId = Type.TypeId;
 		const FLinearColor Color = Type.EditorColor;
+		const bool bClimb = Type.Category == EMazeObjectCategory::Climb && !Library->IsTopPiece(TypeId);
 
 		const FText Label = Type.DisplayName.IsEmpty()
 			? FText::FromName(TypeId)
@@ -425,15 +426,16 @@ void FMazeEdModeSettingsDetails::RebuildObjectPalette()
 				LOCTEXT("ObjectTooltip", "{0}  ({1} x {2} cells)"), Label,
 				FText::AsNumber(FMath::Max(1, Type.FootprintCells.X)),
 				FText::AsNumber(FMath::Max(1, Type.FootprintCells.Y))))
-			.OnClicked_Lambda([WeakSettings, TypeId]()
+			.OnClicked_Lambda([WeakSettings, TypeId, bClimb]()
 			{
 				if (UMazeEdModeSettings* Live = WeakSettings.Get())
 				{
 					Live->PaintObjectType = TypeId;
 
-					// Picking an object is picking the object brush. Selecting a type and then
-					// painting mass with it would be nobody's intention.
-					Live->Tool = EMazeEditTool::Objects;
+					// Picking an object is picking the brush for it. Selecting a type and then
+					// painting mass with it would be nobody's intention. A ladder is not dropped
+					// on a cell but stood in a shaft, so it gets the tool that finds the shaft.
+					Live->Tool = bClimb ? EMazeEditTool::Ladder : EMazeEditTool::Objects;
 					Live->SaveConfig();
 				}
 

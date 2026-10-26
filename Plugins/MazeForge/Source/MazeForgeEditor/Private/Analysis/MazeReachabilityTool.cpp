@@ -10,6 +10,7 @@
 #include "Generators/MazeGenerator_Classic.h"
 #include "Misc/ScopedSlowTask.h"
 #include "Slicers/MazeRoomSlicerBase.h"
+#include "Spawner/MazeLadders.h"
 #include "MazeForgeCore.h"
 #include "Mode/MazeEdModeSettings.h"
 #include "ScopedTransaction.h"
@@ -510,18 +511,32 @@ void MazeReachabilityTool::Fix(UMazeEdModeSettings& Settings)
 			Carved += Connection.CarvedCells;
 			if (Connection.bNeedsLadder && !Ladder.IsNone())
 			{
+				const UMazeObjectLibrary* Library = Spawns->Library.LoadSynchronous();
+				const FName Used = Library
+					? Library->PickVariant(Ladder, MazeLadders::SpotHash(Connection.LadderBase, 0))
+					: Ladder;
+
 				// Stacked pieces of the one ladder type, as many as the climb is tall. Free
 				// anchor: only the lowest has a floor under it.
 				for (int32 Z = 0; Z < Connection.LadderSpan; Z += LadderFootprint.Y)
 				{
 					FMazePlacement Piece;
-					Piece.TypeId = Ladder;
+					Piece.TypeId = Used;
 					Piece.CellXZ = FIntPoint(Connection.LadderBase.X, Connection.LadderBase.Y + Z);
 					Piece.Band = EMazeDepthBand::Play;
 					Piece.Anchor = EMazeAnchorKind::Free;
 					Piece.bStructural = true;
 					NewLadders.Add(Piece);
 					In.Params.Climbables.Add(FIntRect(Piece.CellXZ, Piece.CellXZ + LadderFootprint));
+				}
+
+				// And the platform where the climb ends, if the ladder has one.
+				FMazePlacement Top;
+				if (MazeLadders::MakeTopPiece(Asset->Grid, Library, Used, Connection.LadderBase.X,
+					Connection.LadderBase.Y + Connection.LadderSpan, Top))
+				{
+					Top.bStructural = true;
+					NewLadders.Add(Top);
 				}
 			}
 
@@ -811,7 +826,8 @@ void MazeReachabilityTool::GenerateLocks(UMazeEdModeSettings& Settings)
 			const FIntPoint KeyCell = Pool[Rng.RandRange(0, Pool.Num() - 1)];
 
 			FMazePlacement DoorPlacement;
-			DoorPlacement.TypeId = DoorType->TypeId;
+			DoorPlacement.TypeId = Library->PickVariant(DoorType->TypeId,
+				MazeLadders::SpotHash(DoorCell, static_cast<uint32>(Settings.LockSeed)));
 			DoorPlacement.CellXZ = DoorCell;
 			DoorPlacement.Band = EMazeDepthBand::Play;
 			DoorPlacement.Anchor = EMazeAnchorKind::Floor;
@@ -819,7 +835,8 @@ void MazeReachabilityTool::GenerateLocks(UMazeEdModeSettings& Settings)
 			DoorPlacement.bFromLockGenerator = true;
 
 			FMazePlacement KeyPlacement = DoorPlacement;
-			KeyPlacement.TypeId = KeyType->TypeId;
+			KeyPlacement.TypeId = Library->PickVariant(KeyType->TypeId,
+				MazeLadders::SpotHash(KeyCell, static_cast<uint32>(Settings.LockSeed)));
 			KeyPlacement.CellXZ = KeyCell;
 
 			Placed.Add(DoorPlacement);

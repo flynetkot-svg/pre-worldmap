@@ -232,6 +232,31 @@ namespace MazePlacement
 		}
 	}
 
+	int32 AnchorSliceY(const FMazeGrid& Grid, EMazeDepthBand Band)
+	{
+		const int32 PlaneY = Grid.Depth.PlaneCellY();
+		const int32 SliceY = BandSliceY(Grid, Band);
+
+		// An unfilled band is empty by construction — no need to look.
+		if (SliceY == PlaneY || !Grid.Depth.IsFillBand(Band))
+		{
+			return PlaneY;
+		}
+
+		// A filled band on a built volume has mass in nearly every column, so this stops on
+		// one of the first cells it meets. It only walks the whole grid while the grid is
+		// still flat — and a flat grid is just the plane, the cheap case.
+		for (const TPair<FIntVector, FMazeCell>& Pair : Grid.Cells)
+		{
+			if (Pair.Key.Y == SliceY && Pair.Value.IsSolid())
+			{
+				return SliceY;
+			}
+		}
+
+		return PlaneY;
+	}
+
 	FVector WorldLocation(const FMazeGrid& Grid, const FMazeObjectType& Type,
 	                      const FMazePlacement& Placement)
 	{
@@ -283,7 +308,7 @@ namespace MazePlacement
 			// placement records that it leans on a wall, never which wall, and re-deriving it
 			// keeps that fact in one place — the same place ResolveRotation asks.
 			const FIntPoint Size = SafeFootprint(Type);
-			const int32 SliceY = BandSliceY(Grid, Placement.Band);
+			const int32 SliceY = AnchorSliceY(Grid, Placement.Band);
 
 			const bool bWallOnLeft = Grid.IsColumnSolid(
 				Placement.CellXZ.X - 1, Placement.CellXZ.Y, Placement.CellXZ.Y + Size.Y, SliceY);

@@ -110,4 +110,15 @@ namespace MazePlacement
 
 	/** The depth slice a band is placed in: the middle of that band. */
 	MAZEFORGECORE_API int32 BandSliceY(const FMazeGrid& Grid, EMazeDepthBand Band);
+
+	/**
+	 *  The depth slice a band's objects are FITTED against — walls, floors, ceilings.
+	 *
+	 *  Not always BandSliceY. The decor bands often hold no mass at all: before Build Depth
+	 *  Volume the grid is a single plane, and the foreground is not filled by default. Fitted
+	 *  against an empty slice, a lamp finds no ceiling to hang from and is never placed. So a
+	 *  band with no solid cell of its own borrows the drawing plane — the maze silhouette is
+	 *  the same at every depth. The object still STANDS in BandSliceY; only the test moves.
+	 */
+	MAZEFORGECORE_API int32 AnchorSliceY(const FMazeGrid& Grid, EMazeDepthBand Band);
 }

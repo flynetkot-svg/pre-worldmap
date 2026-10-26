@@ -123,6 +123,12 @@ private:
 	/** The object brush's verdict for the hovered cell, ready to append to the HUD line. */
 	FString ObjectHoverStatus(const UMazeGridAsset& Asset) const;
 
+	/** The Ladder tool's click: stands a ladder in the shaft under the cursor, or (bErase) removes it. */
+	bool ApplyLadderClick(bool bErase);
+
+	/** The Ladder tool's verdict for the hovered cell, ready to append to the HUD line. */
+	FString LadderHoverStatus(const UMazeGridAsset& Asset) const;
+
 	/** How many rooms the last rebuild hid. Kept only so the log reports changes, not every frame. */
 	int32 LastSuppressedRoomCount = -1;
 
