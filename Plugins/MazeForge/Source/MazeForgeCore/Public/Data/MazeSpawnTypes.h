@@ -271,6 +271,29 @@ struct MAZEFORGECORE_API FMazeObjectType
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ladder")
 	FName TopPieceType;
 
+	/**
+	 *  A number property on the actor that gets the height of the climb — NumberOfRungs, say.
+	 *
+	 *  Measured at export, from the floor under the ladder to the upper floor's level at the top
+	 *  of the hole, so a ladder that builds itself in its construction script is as tall as the
+	 *  hole it stands in. Int or float. Empty — the actor is spawned as it is.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ladder")
+	FName ClimbHeightProperty;
+
+	/**
+	 *  Centimetres per one unit of that property — the step between rungs. The height is divided
+	 *  by it and rounded. 0 — the height goes in as centimetres.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ladder", meta = (ClampMin = "0", Units = "cm",
+		EditCondition = "ClimbHeightProperty != NAME_None"))
+	float ClimbUnitCm = 0.0f;
+
+	/** Added after the division: minus the rungs the top section already has, plus a spare one. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Ladder",
+		meta = (EditCondition = "ClimbHeightProperty != NAME_None"))
+	int32 ClimbExtraUnits = 0;
+
 	// ------------------------------------------------------------------ variants
 
 	/**
@@ -379,6 +402,15 @@ struct MAZEFORGECORE_API FMazePlacement
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	FName LockId;
+
+	/**
+	 *  For a ladder: how many cells it climbs, from where it stands to the level of its top.
+	 *  Set by the Ladder tool, Place All Ladders and the generators; the export sizes the ladder
+	 *  by it and does not ask the anchor rules — the ladder was fitted to its shaft. 0 — an
+	 *  ordinary object (a ladder placed with the object brush is measured at export).
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement", meta = (ClampMin = "0"))
+	int32 ClimbCells = 0;
 
 	/** Put here by Generate Locks. The next Generate Locks, or a new maze, replaces it. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")

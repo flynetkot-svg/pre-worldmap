@@ -22,6 +22,7 @@
 #include "Render/MazeEditorStyleAsset.h"
 #include "Slicers/MazeSlicer_UniformGrid.h"
 #include "ScopedTransaction.h"
+#include "Spawner/MazeLadders.h"
 #include "Spawner/MazeObjectGenerator.h"
 #include "World/SMazeWorldMap.h"
 
@@ -379,6 +380,152 @@ void UMazeEdModeSettings::ClearPathPlan()
 
 	// Through the property system, so the panel redraws and Regenerate On Change sees it.
 	Classic->PostEditChange();
+}
+
+FName UMazeEdModeSettings::ResolveLadderType() const
+{
+	const UMazeObjectLibrary* Library = GetObjectLibrary();
+	const FMazeObjectType* Picked = Library ? Library->FindType(PaintObjectType) : nullptr;
+	if (Picked && Picked->Category == EMazeObjectCategory::Climb && !Library->IsTopPiece(Picked->TypeId))
+	{
+		return Picked->TypeId;
+	}
+
+	if (!FixLadderType.IsNone())
+	{
+		return FixLadderType;
+	}
+
+	const UMazeGridAsset* Asset = TargetAsset.LoadSynchronous();
+	const UMazeGenerator_Classic* Classic = Asset ? Cast<UMazeGenerator_Classic>(Asset->Generator) : nullptr;
+	return Classic ? Classic->LadderType : NAME_None;
+}
+
+void UMazeEdModeSettings::PlaceAllLadders()
+{
+	UMazeGridAsset* Asset = TargetAsset.LoadSynchronous();
+	UMazeSpawnAsset* Spawns = GetSpawnAsset();
+	const UMazeObjectLibrary* Library = GetObjectLibrary();
+	const FName LadderType = ResolveLadderType();
+
+	if (!Asset || !Spawns || !Library)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Place All Ladders: needs a Target Asset with a Spawns asset that has a Library."));
+		return;
+	}
+	if (LadderType.IsNone() || !Library->FindType(LadderType))
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Place All Ladders: no ladder type. Click a Climb swatch in the palette, or set Fix "
+			     "Ladder Type, or Ladder Type on the Classic generator."));
+		return;
+	}
+
+	const FMazeGrid& Grid = Asset->Grid;
+	TArray<FMazeShaft> Shafts;
+	MazeLadders::FindAllShafts(Grid, Grid.Depth.PlaneCellY(), Shafts);
+
+	TArray<FMazePlacement> Pieces;
+	int32 Standing = 0;
+	for (const FMazeShaft& Shaft : Shafts)
+	{
+		// A hole that already has a ladder anywhere under it keeps it — placed by hand or not.
+		TArray<int32> Existing;
+		MazeLadders::FindPieces(Spawns->Placements, Library, Shaft.HoleMinX, Shaft.HoleMaxX,
+			Shaft.Bottom.Y, Shaft.TopZ, Existing);
+		if (Existing.Num() > 0)
+		{
+			++Standing;
+			continue;
+		}
+
+		const int32 First = Pieces.Num();
+		MazeLadders::MakeLadder(Grid, Library, LadderType, Shaft.Bottom.X, Shaft.Bottom.Y, Shaft.TopZ,
+			true, 0, Pieces);
+		for (int32 Index = First; Index < Pieces.Num(); ++Index)
+		{
+			Pieces[Index].bStructural = true;
+		}
+	}
+
+	if (Pieces.Num() > 0)
+	{
+		const FScopedTransaction Transaction(LOCTEXT("MazePlaceAllLadders", "MazeForge: Place All Ladders"));
+		Spawns->AddBatch(Pieces);
+	}
+
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Place All Ladders: %d hole(s) found, %d already had a ladder, %d ladder piece(s) of '%s' "
+		     "placed. Ctrl+Z undoes it; Apply Changes builds it."),
+		Shafts.Num(), Standing, Pieces.Num(), *LadderType.ToString());
+}
+
+void UMazeEdModeSettings::SaveLadderMap()
+{
+	UMazeSpawnAsset* Spawns = GetSpawnAsset();
+	const UMazeObjectLibrary* Library = GetObjectLibrary();
+	if (!Spawns || !Library)
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Save Ladder Map: needs a Spawns asset with a Library."));
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("MazeSaveLadderMap", "MazeForge: Save Ladder Map"));
+	const int32 Saved = Spawns->SaveLadderMap(Library);
+	UE_LOG(LogMazeForge, Log, TEXT("Save Ladder Map: %d ladder piece(s) saved into %s."),
+		Saved, *Spawns->GetName());
+}
+
+void UMazeEdModeSettings::LoadLadderMap()
+{
+	UMazeSpawnAsset* Spawns = GetSpawnAsset();
+	const UMazeObjectLibrary* Library = GetObjectLibrary();
+	if (!Spawns || !Library)
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Load Ladder Map: needs a Spawns asset with a Library."));
+		return;
+	}
+	if (Spawns->LadderMap.Num() == 0)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Load Ladder Map: %s has no saved ladders — press Save Ladder Map first. Nothing changed."),
+			*Spawns->GetName());
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("MazeLoadLadderMap", "MazeForge: Load Ladder Map"));
+	const int32 Loaded = Spawns->LoadLadderMap(Library);
+	UE_LOG(LogMazeForge, Log,
+		TEXT("Load Ladder Map: the ladders now placed were replaced by %d saved piece(s). Ctrl+Z undoes it."),
+		Loaded);
+}
+
+void UMazeEdModeSettings::ClearAllLadders()
+{
+	UMazeSpawnAsset* Spawns = GetSpawnAsset();
+	const UMazeObjectLibrary* Library = GetObjectLibrary();
+	if (!Spawns || !Library)
+	{
+		return;
+	}
+
+	TArray<int32> Doomed;
+	MazeLadders::FindPieces(Spawns->Placements, Library, MIN_int32 / 2, MAX_int32 / 2,
+		MIN_int32 / 2, MAX_int32 / 2, Doomed);
+	if (Doomed.Num() == 0)
+	{
+		return;
+	}
+
+	const FScopedTransaction Transaction(LOCTEXT("MazeClearAllLadders", "MazeForge: Clear All Ladders"));
+	for (int32 Index = Doomed.Num() - 1; Index >= 0; --Index)
+	{
+		Spawns->RemoveAt(Doomed[Index]);
+	}
+
+	UE_LOG(LogMazeForge, Log, TEXT("Clear All Ladders: %d piece(s) removed. Ctrl+Z brings them back."),
+		Doomed.Num());
 }
 
 void UMazeEdModeSettings::AnalyzePaths()

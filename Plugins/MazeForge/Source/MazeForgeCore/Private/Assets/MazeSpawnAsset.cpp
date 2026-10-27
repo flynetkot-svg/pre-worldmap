@@ -2,6 +2,7 @@
 
 #include "Assets/MazeObjectLibrary.h"
 #include "MazeForgeCore.h"
+#include "Spawner/MazeLadders.h"
 
 int32 UMazeSpawnAsset::Add(const FMazePlacement& Placement)
 {
@@ -244,4 +245,62 @@ void UMazeSpawnAsset::NotifySpawnsChanged()
 {
 	OnSpawnsChanged.Broadcast();
 	MarkPackageDirty();
+}
+
+int32 UMazeSpawnAsset::SaveLadderMap(const UMazeObjectLibrary* InLibrary)
+{
+#if WITH_EDITOR
+	Modify();
+#endif
+
+	LadderMap.Reset();
+	for (const FMazePlacement& Placement : Placements)
+	{
+		if (MazeLadders::IsLadderPiece(InLibrary, Placement))
+		{
+			LadderMap.Add(Placement);
+		}
+	}
+	return LadderMap.Num();
+}
+
+int32 UMazeSpawnAsset::LoadLadderMap(const UMazeObjectLibrary* InLibrary)
+{
+#if WITH_EDITOR
+	Modify();
+#endif
+
+	Placements.RemoveAll([InLibrary](const FMazePlacement& Placement)
+	{
+		return MazeLadders::IsLadderPiece(InLibrary, Placement);
+	});
+
+	TSet<int32> Taken;
+	for (const FMazePlacement& Placement : Placements)
+	{
+		if (Placement.Id != 0)
+		{
+			Taken.Add(Placement.Id);
+		}
+	}
+
+	for (const FMazePlacement& Saved : LadderMap)
+	{
+		const int32 Index = Placements.Add(Saved);
+
+		// The id it had, so the save system still recognises it — unless something else has
+		// been given that number since, or it was never handed out by this asset.
+		FMazePlacement& Restored = Placements[Index];
+		if (Restored.Id != 0 && (Restored.Id >= NextId || Taken.Contains(Restored.Id)))
+		{
+			Restored.Id = 0;
+		}
+		if (Restored.Id != 0)
+		{
+			Taken.Add(Restored.Id);
+		}
+	}
+
+	NotifySpawnsChanged();
+	return LadderMap.Num();
 }

@@ -446,22 +446,36 @@ void UMazeGridAsset::RunGenerator()
 			const int32 PlaneY = Grid.Depth.PlaneCellY();
 			const int32 Asked = Structural.Num();
 
+			TArray<FMazePlacement> Expanded;
+			Expanded.Reserve(Asked);
+
 			for (int32 Index = 0; Index < Asked; ++Index)
 			{
-				FMazePlacement& Piece = Structural[Index];
-				Piece.TypeId = Library->PickVariant(Piece.TypeId, MazeLadders::SpotHash(Piece.CellXZ, Seed));
+				FMazePlacement Piece = Structural[Index];
 
-				const FMazeObjectType* Type = Library->FindType(Piece.TypeId);
+				// A ladder becomes the same pieces the Ladder tool would make: one ladder from
+				// the floor to the first exit above, sized to it, and its platform there. The
+				// variant is picked inside, so the platform matches the ladder it got.
 				FMazeShaft Shaft;
-				FMazePlacement Top;
-				if (Type && !Type->TopPieceType.IsNone()
-					&& MazeLadders::FindShaft(Grid, PlaneY, Piece.CellXZ, Shaft)
-					&& MazeLadders::MakeTopPiece(Grid, Library, Piece.TypeId, Piece.CellXZ.X, Shaft.TopZ, Top))
+				if (MazeLadders::IsLadderPiece(Library, Piece) && !Library->IsTopPiece(Piece.TypeId)
+					&& MazeLadders::FindShaft(Grid, PlaneY, Piece.CellXZ, Shaft))
 				{
-					Top.bStructural = true;
-					Structural.Add(Top); // invalidates Piece — not touched again
+					TArray<FMazePlacement> Pieces;
+					MazeLadders::MakeLadder(Grid, Library, Piece.TypeId, Shaft.Bottom.X, Shaft.Bottom.Y,
+						Shaft.TopZ, true, Seed, Pieces);
+					for (FMazePlacement& Made : Pieces)
+					{
+						Made.bStructural = true;
+						Expanded.Add(Made);
+					}
+					continue;
 				}
+
+				Piece.TypeId = Library->PickVariant(Piece.TypeId, MazeLadders::SpotHash(Piece.CellXZ, Seed));
+				Expanded.Add(Piece);
 			}
+
+			Structural = MoveTemp(Expanded);
 		}
 
 		// A cleared grid takes its old ladders with it; drawing on top of a maze keeps them.

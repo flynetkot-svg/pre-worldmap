@@ -123,8 +123,12 @@ private:
 	/** The object brush's verdict for the hovered cell, ready to append to the HUD line. */
 	FString ObjectHoverStatus(const UMazeGridAsset& Asset) const;
 
-	/** The Ladder tool's click: stands a ladder in the shaft under the cursor, or (bErase) removes it. */
-	bool ApplyLadderClick(bool bErase);
+	/**
+	 *  The Ladder tool's click. The first one picks the bottom, the second the top and places
+	 *  the ladder. With Shift: cancels a started ladder, otherwise removes the ladders in the
+	 *  column under the cursor.
+	 */
+	bool ApplyLadderClick(bool bShift);
 
 	/** The Ladder tool's verdict for the hovered cell, ready to append to the HUD line. */
 	FString LadderHoverStatus(const UMazeGridAsset& Asset) const;
@@ -196,6 +200,11 @@ private:
 	 */
 	bool bRoomDrag = false;
 	FIntVector RoomDragStartCell = FIntVector::ZeroValue;
+
+	/** The Ladder tool between its two clicks: the bottom picked, the top not yet. */
+	bool bLadderStarted = false;
+	FIntPoint LadderStart = FIntPoint::ZeroValue;
+	bool bLadderStartOnFloor = true;
 
 	/**
 	 *  Fuses or splits the lattice cells the drag covered, and says what it did.

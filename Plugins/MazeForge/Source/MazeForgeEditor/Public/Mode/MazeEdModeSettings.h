@@ -38,9 +38,10 @@ enum class EMazeEditTool : uint8
 	 */
 	Path    = 3,
 	/**
-	 *  Stand a ladder in a hole: click anywhere in the shaft — the ladder goes on the floor
-	 *  under the cursor, its platform on the upper floor's level at the top of the hole.
-	 *  Shift+click — remove the ladder there. Which ladder: a Climb swatch in the palette.
+	 *  Stand a ladder: first click — its bottom (snaps down to the floor, or to an exit level of
+	 *  the shaft, so ladders stack), second click — its top (snaps down to the nearest exit).
+	 *  One ladder the whole length, a platform on top. Shift+click — cancel the first click, or
+	 *  remove the ladders in that column. Which ladder: a Climb swatch in the palette.
 	 */
 	Ladder  = 4
 };
@@ -588,6 +589,39 @@ public:
 	UFUNCTION(CallInEditor, Category = "Objects",
 		meta = (DisplayName = "Clear Generated Objects", DisplayPriority = "4"))
 	void ClearGeneratedObjects();
+
+	/**
+	 *  Stands a ladder in every hole of the maze that has none yet. The type: a Climb swatch
+	 *  picked in the palette, else Fix Ladder Type, else the Classic generator's Ladder Type.
+	 *  Placed as part of the maze — the next generation replaces them. One undo step.
+	 */
+	UFUNCTION(CallInEditor, Category = "Brush",
+		meta = (DisplayName = "Place All Ladders", DisplayPriority = "3"))
+	void PlaceAllLadders();
+
+	/** Removes every ladder and ladder platform from the maze — placed by hand or not. One undo step. */
+	UFUNCTION(CallInEditor, Category = "Brush",
+		meta = (DisplayName = "Clear All Ladders", DisplayPriority = "4"))
+	void ClearAllLadders();
+
+	/**
+	 *  Saves every ladder and platform now placed into the maze's ladder map (in its Spawns
+	 *  asset), replacing the previous one. Save the asset afterwards to keep it on disk.
+	 */
+	UFUNCTION(CallInEditor, Category = "Brush",
+		meta = (DisplayName = "Save Ladder Map", DisplayPriority = "5"))
+	void SaveLadderMap();
+
+	/** Replaces the ladders now placed with the saved ladder map. One undo step. */
+	UFUNCTION(CallInEditor, Category = "Brush",
+		meta = (DisplayName = "Load Ladder Map", DisplayPriority = "6"))
+	void LoadLadderMap();
+
+	/**
+	 *  The ladder type the Ladder tool and Place All Ladders use: the Climb type picked in the
+	 *  palette, else Fix Ladder Type, else the Classic generator's Ladder Type. None if none.
+	 */
+	FName ResolveLadderType() const;
 
 	/** The target's spawn asset, or null. */
 	UMazeSpawnAsset* GetSpawnAsset() const;

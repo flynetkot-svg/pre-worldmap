@@ -11,6 +11,7 @@
 #include "Data/MazeRoomDesc.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/StaticMeshActor.h"
+#include "Components/ShapeComponent.h"
 #include "Engine/World.h"
 #include "Editor.h"
 #include "Export/MazeExportUtils.h"
@@ -23,6 +24,7 @@
 #include "Misc/ScopedSlowTask.h"
 #include "PhysicsEngine/BodySetup.h"
 #include "Spawner/MazeObjectIdComponent.h"
+#include "Spawner/MazeLadders.h"
 #include "Spawner/MazePlacementRules.h"
 #include "StaticMeshCompiler.h"
 #include "UObject/GCObjectScopeGuard.h"
@@ -36,7 +38,8 @@ namespace
 	 *  Part of every level hash. Raised whenever the export changes what it writes into a level,
 	 *  so that levels written by an older build are rewritten once rather than trusted.
 	 */
-	constexpr int32 LevelFormatVersion = 1;
+	// 2: objects stand in the middle of their depth band, not in the middle of one cell of it.
+	constexpr int32 LevelFormatVersion = 2;
 
 	/** A struct as the Details panel would copy it: every property, including ones added later. */
 	template <typename TStruct>
@@ -694,7 +697,11 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 			EMazeAnchorKind PlacedAnchor = Placement.Anchor;
 			bool bReanchored = false;
 
-			if (!MazePlacement::Fits(Grid, *Type, Placement.CellXZ, SliceY, PlacedAnchor))
+			// A ladder with Climb Cells was fitted to its shaft by the ladder tools, and its upper
+			// pieces stand over the hole of the one below — the anchor rules would refuse them.
+			const bool bFittedLadder = Placement.ClimbCells > 0;
+
+			if (!bFittedLadder && !MazePlacement::Fits(Grid, *Type, Placement.CellXZ, SliceY, PlacedAnchor))
 			{
 				if (!MazePlacement::FindAnchor(Grid, *Type, Placement.CellXZ, SliceY, PlacedAnchor))
 				{
@@ -764,13 +771,79 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				continue;
 			}
 
+			// A ladder that builds itself is told how tall the hole is — measured now, against
+			// the maze as it stands, like the fit above. Set after spawning and the construction
+			// script run again: that is where such a blueprint lays out its rungs.
+			if (Object && !Type->ClimbHeightProperty.IsNone())
+			{
+				FMazeShaft Shaft;
+				FNumericProperty* Numeric = CastField<FNumericProperty>(
+					Object->GetClass()->FindPropertyByName(Type->ClimbHeightProperty));
+
+				if (!Numeric)
+				{
+					UE_LOG(LogMazeForge, Warning,
+						TEXT("Export: '%s' names Climb Height Property '%s', but %s has no int or float "
+						     "property by that name. Spawned at its default height."),
+						*Type->TypeId.ToString(), *Type->ClimbHeightProperty.ToString(),
+						*Object->GetClass()->GetName());
+				}
+				else if (Placement.ClimbCells <= 0 && !MazeLadders::FindShaft(Grid, SliceY, Placement.CellXZ, Shaft))
+				{
+					UE_LOG(LogMazeForge, Warning,
+						TEXT("Export: '%s' at X %d Z %d has no hole above it to measure — spawned at "
+						     "its default height."),
+						*Type->TypeId.ToString(), Placement.CellXZ.X, Placement.CellXZ.Y);
+				}
+				else
+				{
+					// The height it was placed with; measured only for a ladder put down by the
+					// object brush, which knows nothing about shafts.
+					const int32 Cells = Placement.ClimbCells > 0 ? Placement.ClimbCells : Shaft.TopZ - Shaft.Bottom.Y;
+					const double HeightCm = Cells * Grid.CellSize.Z;
+					const double Value = MazeLadders::ClimbValue(*Type, HeightCm);
+					void* ValuePtr = Numeric->ContainerPtrToValuePtr<void>(Object);
+
+					if (Numeric->IsFloatingPoint())
+					{
+						Numeric->SetFloatingPointPropertyValue(ValuePtr, Value);
+					}
+					else
+					{
+						Numeric->SetIntPropertyValue(ValuePtr, static_cast<int64>(FMath::RoundToDouble(Value)));
+					}
+
+					Object->RerunConstructionScripts();
+
+					UE_LOG(LogMazeForge, Log,
+						TEXT("Export: '%s' at X %d Z %d climbs %.0f cm — %s = %.0f."),
+						*Type->TypeId.ToString(), Placement.CellXZ.X, Placement.CellXZ.Y, HeightCm,
+						*Type->ClimbHeightProperty.ToString(), Value);
+				}
+			}
+
 			if (Object && Type->bSnapToAnchorSurface)
 			{
 				// Measured, not assumed. Where a mesh sits relative to its own origin is a fact
 				// about the asset, and the asset lives in the game module; the rules can only
 				// say which surface it should touch. Non-colliding components included, or a
 				// prop built from plain meshes measures as nothing and never moves.
-				const FBox Bounds = Object->GetComponentsBoundingBox(true);
+				//
+				// Trigger and collision volumes (boxes, capsules, spheres) are left out: they are
+				// not what the prop looks like, and a ladder's "you may climb" box hanging below
+				// its first rung pushed the whole ladder up off the floor.
+				FBox Bounds(ForceInit);
+				Object->ForEachComponent<UPrimitiveComponent>(true, [&Bounds](const UPrimitiveComponent* Component)
+				{
+					if (Component->IsRegistered() && !Component->IsA<UShapeComponent>())
+					{
+						Bounds += Component->Bounds.GetBox();
+					}
+				});
+				if (!Bounds.IsValid)
+				{
+					Bounds = Object->GetComponentsBoundingBox(true);
+				}
 
 				const FVector Delta = MazePlacement::ContactSnapDelta(
 					Bounds, MazePlacement::ContactFace(Grid, *Type, Resolved), Location);

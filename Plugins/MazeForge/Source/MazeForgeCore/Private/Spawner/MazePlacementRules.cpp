@@ -275,6 +275,28 @@ namespace MazePlacement
 		// when it snaps the spawned actor against it — so it is answered once, in ContactFace.
 		FVector Location = Box.GetCenter();
 
+		// Depth: the middle of the band, not the middle of one cell in it. With an even number
+		// of Play cells no cell is centred on the player — the plane slice is the front one,
+		// so everything "in the Play band" stood half a cell in front of him, and an Offset Y
+		// of -100 moved a ladder only 75 cm behind him.
+		{
+			const FMazeDepthProfile& Depth = Grid.Depth;
+			double BandStart = 0.0;
+			double BandCells = Depth.PlayCells;
+			switch (Placement.Band)
+			{
+			case EMazeDepthBand::Background: BandStart = 0.0;                   BandCells = Depth.BackgroundCells; break;
+			case EMazeDepthBand::Foreground: BandStart = Depth.PlayEndCell();   BandCells = Depth.ForegroundCells; break;
+			case EMazeDepthBand::Play:
+			default:                         BandStart = Depth.PlayStartCell(); BandCells = Depth.PlayCells;       break;
+			}
+			if (BandCells > 0.0)
+			{
+				Location.Y = Grid.WorldOrigin.Y
+					+ (BandStart + BandCells * 0.5 - Depth.PlayCenterInCells()) * Grid.CellSize.Y;
+			}
+		}
+
 		switch (ContactFace(Grid, Type, Placement))
 		{
 		case EMazeContactFace::MinZ: Location.Z = Box.Min.Z; break;

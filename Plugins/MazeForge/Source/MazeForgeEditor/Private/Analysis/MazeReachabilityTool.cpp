@@ -74,7 +74,10 @@ namespace
 
 			if (Type->Category == EMazeObjectCategory::Climb)
 			{
-				In.Params.Climbables.Add(FIntRect(Placement.CellXZ, Placement.MaxCellXZ(Type->FootprintCells)));
+				// A ladder sized to its shaft climbs its Climb Cells, not just its footprint.
+				FIntPoint Max = Placement.MaxCellXZ(Type->FootprintCells);
+				Max.Y = FMath::Max(Max.Y, Placement.CellXZ.Y + Placement.ClimbCells);
+				In.Params.Climbables.Add(FIntRect(Placement.CellXZ, Max));
 			}
 
 			if (Type->TransitionRole == EMazeTransitionRole::Entry)
@@ -516,18 +519,25 @@ void MazeReachabilityTool::Fix(UMazeEdModeSettings& Settings)
 					? Library->PickVariant(Ladder, MazeLadders::SpotHash(Connection.LadderBase, 0))
 					: Ladder;
 
-				// Stacked pieces of the one ladder type, as many as the climb is tall. Free
-				// anchor: only the lowest has a floor under it.
-				for (int32 Z = 0; Z < Connection.LadderSpan; Z += LadderFootprint.Y)
+				// Stacked pieces of the one ladder type, as many as the climb is tall — or a
+				// single one, when the ladder sizes itself to the hole at export. Free anchor
+				// above the first: only the lowest has a floor under it.
+				const FMazeObjectType* UsedType = Library ? Library->FindType(Used) : nullptr;
+				const int32 PieceStep = (UsedType && !UsedType->ClimbHeightProperty.IsNone())
+					? FMath::Max(1, Connection.LadderSpan) : LadderFootprint.Y;
+
+				for (int32 Z = 0; Z < Connection.LadderSpan; Z += PieceStep)
 				{
 					FMazePlacement Piece;
 					Piece.TypeId = Used;
 					Piece.CellXZ = FIntPoint(Connection.LadderBase.X, Connection.LadderBase.Y + Z);
 					Piece.Band = EMazeDepthBand::Play;
-					Piece.Anchor = EMazeAnchorKind::Free;
+					Piece.Anchor = Z == 0 ? EMazeAnchorKind::Floor : EMazeAnchorKind::Free;
+					Piece.ClimbCells = PieceStep == Connection.LadderSpan ? Connection.LadderSpan : 0;
 					Piece.bStructural = true;
 					NewLadders.Add(Piece);
-					In.Params.Climbables.Add(FIntRect(Piece.CellXZ, Piece.CellXZ + LadderFootprint));
+					In.Params.Climbables.Add(FIntRect(Piece.CellXZ, Piece.CellXZ
+						+ FIntPoint(LadderFootprint.X, FMath::Max(LadderFootprint.Y, Piece.ClimbCells))));
 				}
 
 				// And the platform where the climb ends, if the ladder has one.

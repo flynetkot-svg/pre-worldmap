@@ -5,7 +5,7 @@
 
 namespace MazeLadders
 {
-	bool FindShaft(const FMazeGrid& Grid, const int32 SliceY, const FIntPoint& Cell, FMazeShaft& OutShaft)
+	bool FindColumn(const FMazeGrid& Grid, const int32 SliceY, const FIntPoint& Cell, FMazeShaft& OutShaft)
 	{
 		// Outside the grid and the world border count as mass: a ladder can neither stand on
 		// nor climb into what will not be there.
@@ -28,7 +28,7 @@ namespace MazeLadders
 		}
 
 		// Mass under (Lx, Z - 1) with air under that, no lower than the floor the ladder stands
-		// on: a slab hanging over the room, not a step up from its floor.
+		// on: a slab or the floor of a side corridor, not a step up from the floor below.
 		auto IsOverhang = [&Blocked, Floor](int32 Lx, int32 Z)
 		{
 			if (!Blocked(Lx, Z - 1))
@@ -43,53 +43,269 @@ namespace MazeLadders
 			return Below >= Floor;
 		};
 
-		constexpr int32 MaxReach = 64; // how far along a row to look for somewhere to step off
-		constexpr int32 MinLedge = 2;  // a one-cell lip is not a floor
+		// In centimetres, so the rules mean the same on a 10 cm grid and a 100 cm one.
+		const double CellX = FMath::Max(1.0, Grid.CellSize.X);
+		const double CellZ = FMath::Max(1.0, Grid.CellSize.Z);
+		const int32 Reach = FMath::Max(2, FMath::CeilToInt(200.0 / CellX));     // a step off a ladder
+		const int32 MinLedge = FMath::Max(2, FMath::CeilToInt(120.0 / CellX));  // a floor, not a bump
+		const int32 Headroom = FMath::Max(2, FMath::CeilToInt(150.0 / CellZ));  // room to stand up
+		const int32 MaxHole = FMath::Max(2, FMath::CeilToInt(400.0 / CellX));   // a hole, not a room
 
-		// The column above the ladder ends at the grid edge at the latest, so this stops.
-		for (int32 Z = Floor + 1; !Blocked(X, Z); ++Z)
+		auto IsLedge = [&Blocked, &IsOverhang, MinLedge, Headroom](int32 FromX, int32 Dir, int32 Z)
 		{
-			int32 Left = X;
-			while (Left > X - MaxReach && !Blocked(Left - 1, Z))
+			for (int32 K = 0; K < MinLedge; ++K)
 			{
-				--Left;
+				const int32 Lx = FromX + Dir * K;
+				if (Blocked(Lx, Z) || !IsOverhang(Lx, Z))
+				{
+					return false;
+				}
 			}
-			int32 Right = X;
-			while (Right < X + MaxReach && !Blocked(Right + 1, Z))
+			for (int32 Up = 1; Up < Headroom; ++Up)
 			{
-				++Right;
+				if (Blocked(FromX, Z + Up))
+				{
+					return false;
+				}
+			}
+			return true;
+		};
+
+		OutShaft = FMazeShaft();
+		OutShaft.Bottom = FIntPoint(X, Floor);
+
+		// The column above the floor ends at the grid edge at the latest, so this stops.
+		int32 Z = Floor + 1;
+		for (; !Blocked(X, Z); ++Z)
+		{
+			// Somewhere to step off, right beside the ladder: outwards over open air, the first
+			// cell with mass under it. Scanning the whole row found a "floor" on every lump of
+			// erosion in the room.
+			bool bLedge = false;
+			for (const int32 Dir : { -1, 1 })
+			{
+				for (int32 Step = 1; Step <= Reach && !bLedge; ++Step)
+				{
+					const int32 Lx = X + Dir * Step;
+					if (Blocked(Lx, Z))
+					{
+						break; // a wall beside the ladder
+					}
+					if (!Blocked(Lx, Z - 1))
+					{
+						continue; // still over the hole
+					}
+					bLedge = IsLedge(Lx, Dir, Z);
+					break;
+				}
+			}
+			if (!bLedge)
+			{
+				continue;
 			}
 
-			int32 Ledge = 0;
-			for (int32 Lx = Left; Lx <= Right; ++Lx)
+			// And the column is in a gap there — a hole or a shaft, bounded on both sides — not
+			// open air beside a pillar standing in a room.
+			int32 HoleMin = X;
+			while (X - HoleMin < MaxHole && !Blocked(HoleMin - 1, Z - 1))
 			{
-				Ledge = IsOverhang(Lx, Z) ? Ledge + 1 : 0;
-				if (Ledge >= MinLedge)
+				--HoleMin;
+			}
+			int32 HoleMax = X;
+			while (HoleMax - X < MaxHole && !Blocked(HoleMax + 1, Z - 1))
+			{
+				++HoleMax;
+			}
+			if (!Blocked(HoleMin - 1, Z - 1) || !Blocked(HoleMax + 1, Z - 1)
+				|| HoleMax - HoleMin + 1 > MaxHole)
+			{
+				continue;
+			}
+
+			// One exit per floor: a floor a step higher is the same floor, eroded.
+			if (OutShaft.Exits.Num() > 0 && Z - OutShaft.Exits.Last() < Headroom)
+			{
+				continue;
+			}
+
+			if (OutShaft.Exits.Num() == 0)
+			{
+				OutShaft.HoleMinX = HoleMin;
+				OutShaft.HoleMaxX = HoleMax;
+			}
+			OutShaft.Exits.Add(Z);
+		}
+
+		OutShaft.CeilingZ = Z;
+		OutShaft.TopZ = OutShaft.Exits.Num() > 0 ? OutShaft.Exits[0] : INDEX_NONE;
+		return true;
+	}
+
+	bool FindShaft(const FMazeGrid& Grid, int32 SliceY, const FIntPoint& Cell, FMazeShaft& OutShaft)
+	{
+		return FindColumn(Grid, SliceY, Cell, OutShaft) && OutShaft.Exits.Num() > 0;
+	}
+
+	int32 LevelAtOrBelow(const FMazeShaft& Shaft, int32 Z)
+	{
+		int32 Level = Shaft.Bottom.Y;
+		for (const int32 Exit : Shaft.Exits)
+		{
+			if (Exit <= Z)
+			{
+				Level = Exit;
+			}
+		}
+		return Level;
+	}
+
+	int32 SnapTop(const FMazeShaft& Shaft, int32 BottomZ, int32 Z)
+	{
+		int32 Top = INDEX_NONE;
+		for (const int32 Exit : Shaft.Exits)
+		{
+			if (Exit > BottomZ && Exit <= Z)
+			{
+				Top = Exit;
+			}
+		}
+		if (Top == INDEX_NONE)
+		{
+			// No exit there: the designer's word goes, as long as the ladder stays in the column.
+			Top = FMath::Min(Z, Shaft.CeilingZ);
+		}
+		return Top > BottomZ ? Top : INDEX_NONE;
+	}
+
+	void FindAllShafts(const FMazeGrid& Grid, int32 SliceY, TArray<FMazeShaft>& Out)
+	{
+		// Every cell a ladder could stand in is the empty cell on top of some mass, so the mass
+		// is what is walked: the grid stores mass only, and the air is everything else.
+		TMap<FIntPoint, FMazeShaft> ByHole; // (hole's left cell, first exit row) -> best shaft
+
+		// The tops of the mass, plus the lowest free cell of every column: the bottom of the
+		// map may be the world border, which is built but never stored as cells.
+		TArray<FIntPoint> Spots;
+		for (const TPair<FIntVector, FMazeCell>& Pair : Grid.Cells)
+		{
+			if (Pair.Key.Y == SliceY && Pair.Value.IsSolid())
+			{
+				Spots.Add(FIntPoint(Pair.Key.X, Pair.Key.Z + 1));
+			}
+		}
+		for (int32 X = 0; X < Grid.SizeXZ.X; ++X)
+		{
+			for (int32 Z = 0; Z < FMath::Min(64, Grid.SizeXZ.Y); ++Z)
+			{
+				const FIntVector C(X, SliceY, Z);
+				if (!Grid.IsSolid(C) && !Grid.IsBorderCell(C))
 				{
-					OutShaft.Bottom = FIntPoint(X, Floor);
-					OutShaft.TopZ = Z;
-					return true;
+					if (Z > 0)
+					{
+						Spots.Add(FIntPoint(X, Z));
+					}
+					break;
 				}
 			}
 		}
 
-		return false;
+		for (const FIntPoint& Spot : Spots)
+		{
+			FMazeShaft Shaft;
+			if (!FindShaft(Grid, SliceY, Spot, Shaft) || Shaft.Bottom.Y != Spot.Y)
+			{
+				continue;
+			}
+
+			const FIntPoint Key(Shaft.HoleMinX, Shaft.TopZ);
+			const int32 Middle2 = Shaft.HoleMinX + Shaft.HoleMaxX; // twice the middle, no rounding
+			auto Off = [Middle2](const FMazeShaft& S)
+			{
+				return FMath::Abs(2 * S.Bottom.X - Middle2) * 2 + (2 * S.Bottom.X < Middle2 ? 0 : 1);
+			};
+
+			FMazeShaft* Best = ByHole.Find(Key);
+			if (!Best)
+			{
+				ByHole.Add(Key, Shaft);
+			}
+			else if (Off(Shaft) < Off(*Best))
+			{
+				*Best = Shaft;
+			}
+		}
+
+		Out.Reset(ByHole.Num());
+		for (const TPair<FIntPoint, FMazeShaft>& Pair : ByHole)
+		{
+			Out.Add(Pair.Value);
+		}
+
+		// A stable order, so the variants and the undo history do not depend on the hash map.
+		Out.Sort([](const FMazeShaft& A, const FMazeShaft& B)
+		{
+			return A.TopZ != B.TopZ ? A.TopZ < B.TopZ : A.Bottom.X < B.Bottom.X;
+		});
+	}
+
+	bool IsLadderPiece(const UMazeObjectLibrary* Library, const FMazePlacement& Placement)
+	{
+		const FMazeObjectType* Type = Library ? Library->FindType(Placement.TypeId) : nullptr;
+		return Type && (Type->Category == EMazeObjectCategory::Climb || Library->IsTopPiece(Placement.TypeId));
+	}
+
+	void FindPieces(const TArray<FMazePlacement>& Placements, const UMazeObjectLibrary* Library,
+	                int32 MinX, int32 MaxX, int32 MinZ, int32 MaxZ, TArray<int32>& OutIndices)
+	{
+		for (int32 Index = 0; Index < Placements.Num(); ++Index)
+		{
+			const FMazePlacement& Piece = Placements[Index];
+			if (!IsLadderPiece(Library, Piece))
+			{
+				continue;
+			}
+
+			const FMazeObjectType* Type = Library->FindType(Piece.TypeId);
+			const FIntPoint Max = Piece.MaxCellXZ(Type->FootprintCells); // exclusive
+			const int32 MaxZPiece = FMath::Max(Max.Y, Piece.CellXZ.Y + Piece.ClimbCells);
+			if (Piece.CellXZ.X <= MaxX && MinX < Max.X && Piece.CellXZ.Y <= MaxZ && MinZ < MaxZPiece)
+			{
+				OutIndices.Add(Index);
+			}
+		}
 	}
 
 	FName MakeLadder(const FMazeGrid& Grid, const UMazeObjectLibrary* Library, FName LadderType,
-	                 const FMazeShaft& Shaft, uint32 Seed, TArray<FMazePlacement>& Out)
+	                 int32 X, int32 BottomZ, int32 TopZ, bool bOnFloor, uint32 Seed,
+	                 TArray<FMazePlacement>& Out)
 	{
-		const FName Used = Library ? Library->PickVariant(LadderType, SpotHash(Shaft.Bottom, Seed)) : LadderType;
+		const FIntPoint Base(X, BottomZ);
+		const FName Used = Library ? Library->PickVariant(LadderType, SpotHash(Base, Seed)) : LadderType;
 
 		FMazePlacement Ladder;
 		Ladder.TypeId = Used;
-		Ladder.CellXZ = Shaft.Bottom;
+		Ladder.CellXZ = Base;
 		Ladder.Band = EMazeDepthBand::Play;
-		Ladder.Anchor = EMazeAnchorKind::Floor;
+		Ladder.ClimbCells = FMath::Max(1, TopZ - BottomZ);
+
+		if (bOnFloor)
+		{
+			Ladder.Anchor = EMazeAnchorKind::Floor;
+		}
+		else
+		{
+			// Standing on the platform of the ladder below, over its hole: nothing to anchor to.
+			// A Free object stands in the middle of its box; half the box down puts its pivot on
+			// the level.
+			const FMazeObjectType* Type = Library ? Library->FindType(Used) : nullptr;
+			const int32 Height = Type ? FMath::Max(1, Type->FootprintCells.Y) : 1;
+			Ladder.Anchor = EMazeAnchorKind::Free;
+			Ladder.Offset = FVector(0.0, 0.0, -0.5 * Height * Grid.CellSize.Z);
+		}
 		Out.Add(Ladder);
 
 		FMazePlacement Top;
-		if (Shaft.TopZ != INDEX_NONE && MakeTopPiece(Grid, Library, Used, Shaft.Bottom.X, Shaft.TopZ, Top))
+		if (MakeTopPiece(Grid, Library, Used, X, TopZ, Top))
 		{
 			Out.Add(Top);
 		}
@@ -119,6 +335,14 @@ namespace MazeLadders
 		Out.Anchor = EMazeAnchorKind::Free;
 		Out.Offset = FVector(0.0, 0.0, -0.5 * Height * Grid.CellSize.Z);
 		return true;
+	}
+
+	double ClimbValue(const FMazeObjectType& Type, double HeightCm)
+	{
+		const double Units = Type.ClimbUnitCm > 0.0f
+			? FMath::RoundToDouble(HeightCm / Type.ClimbUnitCm)
+			: HeightCm;
+		return FMath::Max(1.0, Units + Type.ClimbExtraUnits);
 	}
 
 	uint32 SpotHash(const FIntPoint& Cell, uint32 Seed)

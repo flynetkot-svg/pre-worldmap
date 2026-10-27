@@ -8,6 +8,7 @@
 #include "DetailLayoutBuilder.h"
 #include "DetailWidgetRow.h"
 #include "Editor.h"
+#include "Generators/MazeGeneratorBase.h"
 #include "IDetailPropertyRow.h"
 #include "IPropertyUtilities.h"
 #include "TimerManager.h"

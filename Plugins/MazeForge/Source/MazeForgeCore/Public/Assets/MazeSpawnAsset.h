@@ -42,6 +42,25 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Spawner")
 	int32 NextId = 1;
 
+	/**
+	 *  The ladders of this maze as last saved with Save Ladder Map — ladders and their platforms.
+	 *
+	 *  In a designer's maze every ladder is put down by hand, and a stray Clear All Ladders or a
+	 *  regeneration costs an afternoon of clicking. This copy brings them back with Load Ladder
+	 *  Map. It is only written when asked, so a bad state is never saved over a good one.
+	 */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Ladders")
+	TArray<FMazePlacement> LadderMap;
+
+	/** Copies every ladder piece into LadderMap, replacing what it held. Returns how many. */
+	int32 SaveLadderMap(const UMazeObjectLibrary* InLibrary);
+
+	/**
+	 *  Replaces every ladder piece now placed with the ones in LadderMap, keeping their ids so
+	 *  the save system still knows them. Returns how many were put back.
+	 */
+	int32 LoadLadderMap(const UMazeObjectLibrary* InLibrary);
+
 	// ------------------------------------------------------------------- editing
 
 	/** Appends a placement. It gets no id — that happens at the first export. */
