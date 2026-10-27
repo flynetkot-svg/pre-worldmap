@@ -352,7 +352,33 @@ void AMazePreviewActor::Rebuild(const UMazeGridAsset* Asset, const TSet<FName>& 
 		}
 		if (Grid.Borders.bCloseBottom)
 		{
-			AddSlab(FIntVector(0, 0, 0), FIntVector(MaxX, LastY, T - 1));
+			// Its top row is where Mark Floor Surfaces stores Floor cells for the ground the player
+			// walks on. Those are drawn as cells already; a slab through them as well is two boxes
+			// in one place, and the two flicker against each other. So the slab stops under that
+			// row, and the row is drawn only in the runs no cell of its own covers.
+			if (T > 1)
+			{
+				AddSlab(FIntVector(0, 0, 0), FIntVector(MaxX, LastY, T - 2));
+			}
+
+			const int32 Row = T - 1;
+			for (int32 Y = 0; Y <= LastY; ++Y)
+			{
+				int32 RunStart = INDEX_NONE;
+				for (int32 X = 0; X <= MaxX + 1; ++X)
+				{
+					const bool bFree = X <= MaxX && !Grid.Cells.Contains(FIntVector(X, Y, Row));
+					if (bFree && RunStart == INDEX_NONE)
+					{
+						RunStart = X;
+					}
+					else if (!bFree && RunStart != INDEX_NONE)
+					{
+						AddSlab(FIntVector(RunStart, Y, Row), FIntVector(X - 1, Y, Row));
+						RunStart = INDEX_NONE;
+					}
+				}
+			}
 		}
 		if (Grid.Borders.bCloseTop)
 		{
