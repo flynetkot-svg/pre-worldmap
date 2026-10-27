@@ -32,6 +32,7 @@ Anything not mentioned here, leave alone. The defaults are chosen for a first ma
 17. [Reachability, doors and keys](#17-reachability-doors-and-keys)
 18. [Ladders](#18-ladders)
 19. [Moving a maze to another project](#19-moving-a-maze-to-another-project)
+20. [Floors](#20-floors)
 
 ---
 
@@ -992,6 +993,8 @@ At least one of them has no `Maze Name`. Give both a name and rebuild both. The 
 
 **Order of work on a level:** asset (`Room Size` right away) → plane → room colouring (`Tool = Rooms`) → `Apply` → objects → `Apply`.
 
+**Floors:** the ground is `Floor` cells — after generation, after each brush stroke, and on `Mark Floor Surfaces` for a finished maze. Give `Palette → Floor` a material, or nothing shows.
+
 **Keys in the mode:** `Q` lifts the layer dimming while held, `PgUp` / `PgDn` change the active depth slice, `Ctrl` + drag fills a rectangle, `Ctrl` + LMB erases. With `Tool = Rooms`: drag merges rooms, `Shift` + drag splits them. With `Tool = Path`: click — a main path point, `Shift` + click — a branch point, `Ctrl` + `Shift` + click — a new branch, `Ctrl` + click — remove. With `Tool = Ladder`: click — the bottom, click — the top, `Shift` + click — cancel, or remove the ladders in a column.
 
 **Keys on the world map:** `F` frames everything, `Delete` removes the selected link, `Escape` cancels a pending link.
@@ -1086,3 +1089,30 @@ Everything you made is in assets: the maze asset (cells, rooms and merges, the g
 5. In the new project: the mode → `Target Asset` → **Apply Changes**.
 
 **Check:** the rooms, objects and ladders stand where they stood, with the same ids.
+
+---
+
+## 20. Floors
+
+The ground the player runs on is `Floor` cells; the rest of the mass is `Solid`. The two are the same mass with the same collision — the difference is the material: `Floor` has its own entry in the palette.
+
+### 20.1 Give the floor a material
+
+`DA_MazeBuildSettings → Palette → Floor`: set `Material Override`, or a few `Variants`. Without it the floor builds exactly like the walls.
+
+### 20.2 Where floors come from
+
+- **After generation**, in any generator — Mesh, Classic, Image, Random, Dungeon: `Mark Floor Surfaces` (on) makes every reachable horizontal surface `Floor`, `Floor Surface Cells` deep (1).
+- **After each brush stroke**, with `Brush → Auto Floor Surfaces` on: cut a hole or draw a step and the top it laid bare becomes `Floor`; bury a floor and it becomes `Solid`. Part of the stroke's `Ctrl+Z`.
+- **On the button** `Brush → Mark Floor Surfaces` — for a maze made before this existed, or drawn by hand.
+
+Only surfaces the player can get onto count — the air above them has to be reachable, as `Check Reachability` sees it without gravity. A window sill, a pocket sealed in the mass, a slit he does not fit in stay `Solid`. The reach starts at the `Entry` points; with none, at the lowest place to stand.
+
+### 20.3 An existing maze
+
+1. `Target Asset` — the maze.
+2. `Snapshot → Save`, for safety: retyped cells go back to surface variant 0.
+3. **Mark Floor Surfaces**. The log says `floor surfaces marked — N Floor cell(s), M cell(s) retyped`. Works on a built volume as well; no need for `Change Current Maze`.
+4. **Apply Changes** — the rooms rebuild with the floor material.
+
+**Check:** the floors in the preview are the `Floor` colour, window sills and sealed pockets are not. If most floors stayed `Solid`, the reach started in a cut-off piece: put an `Entry` point where the player arrives and press the button again.

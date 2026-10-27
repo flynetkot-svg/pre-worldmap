@@ -366,6 +366,8 @@ A map of "cell type → what to build it with". Filled in by the constructor, so
 
 Each entry has `Mesh` (empty — the stock cube), `Material Override`, `Editor Color` and a list of `Variants`.
 
+> **Give `Floor` a material of its own.** `Mark Floor Surfaces` makes the ground `Floor` cells; without a `Material Override` or `Variants` on the `Floor` entry they build with the same look as the walls, and the work shows nowhere.
+
 A variant is **not** a new cell type. The geometry is the same; only the surface differs — one stretch of level brick, another rock.
 
 | Variant field | Meaning |
@@ -708,7 +710,7 @@ The layout of the mazes is stored in the graph and changes nothing about the gam
 |---|---|
 | `Empty` | Emptiness — passable space. |
 | `Solid` | Wall, the mass of the maze. |
-| `Floor` | A slab between floors. Geometrically the same as `Solid`, split out for decor. |
+| `Floor` | The ground: the horizontal surfaces the player can get onto. Geometrically the same as `Solid` — mass, collision — but with its own entry in the palette, so the ground gets its own material. Set by `Mark Floor Surfaces` (the generators, the brush after each stroke, the button), or painted by hand. |
 | `BackWall` | Painted back wall: the surface that closes the maze off from behind. It produces geometry but is **not** solid: it lives in its own slice at the far edge of the depth and the player never reaches it. A window is simply a cell where the back wall was not painted — through the hole you see the sky. |
 
 ### Depth band
