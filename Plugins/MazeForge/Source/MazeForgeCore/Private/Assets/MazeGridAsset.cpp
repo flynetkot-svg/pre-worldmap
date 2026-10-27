@@ -591,7 +591,26 @@ int32 UMazeGridAsset::MarkFloorSurfaces(int32 Thickness, int32 AgentWidthCm, con
 
 	// Retyping changes nothing IsSolid sees, so the neighbours read while walking stay what
 	// they were — no second copy of the grid is needed.
-	auto Retype = [this, Depth, &Changed, &Floors, &IsTrodden](const FIntVector& Key, FMazeCell& Cell)
+	// Open to the sky: with the top of the world left open, nothing but air from here to the top
+	// edge of the grid. The reach check treats outside the grid as wall and never stands him
+	// under the edge, but a roof under the open sky is ground all the same.
+	auto OpenToSky = [this](const FIntVector& From)
+	{
+		if (Grid.Borders.bCloseTop)
+		{
+			return false;
+		}
+		for (int32 Z = From.Z; Z < Grid.SizeXZ.Y; ++Z)
+		{
+			if (Grid.IsSolid(FIntVector(From.X, From.Y, Z)))
+			{
+				return false;
+			}
+		}
+		return true;
+	};
+
+	auto Retype = [this, Depth, &Changed, &Floors, &IsTrodden, &OpenToSky](const FIntVector& Key, FMazeCell& Cell)
 	{
 		if (!Cell.IsSolid())
 		{
@@ -608,7 +627,8 @@ int32 UMazeGridAsset::MarkFloorSurfaces(int32 Thickness, int32 AgentWidthCm, con
 			const FMazeCell* Over = Grid.Find(Above);
 			if (!Over || !Over->IsSolid())
 			{
-				bFloor = Grid.IsInside(Above) && !Grid.IsBorderCell(Above) && IsTrodden(Above.X, Above.Z);
+				bFloor = !Grid.IsBorderCell(Above)
+					&& (IsTrodden(Above.X, Above.Z) || OpenToSky(Above));
 				break;
 			}
 		}
@@ -624,8 +644,67 @@ int32 UMazeGridAsset::MarkFloorSurfaces(int32 Thickness, int32 AgentWidthCm, con
 		}
 	};
 
+	// The bottom border is built as mass but stored nowhere, so it has no type to change: where
+	// the player walks on it, it gets a Floor cell of its own, and the bake builds that cell with
+	// the floor's surface. Where he no longer does, that cell goes again — the border builds
+	// regardless. In the drawing plane while the grid is flat (Build Depth Volume carries it
+	// through the depth), in every filled slice once it is a volume.
+	auto MarkBottomBorder = [this, &Changed, &Floors, &IsTrodden](int32 MinX, int32 MaxX)
+	{
+		if (!Grid.Borders.bCloseBottom)
+		{
+			return;
+		}
+
+		const int32 Row = FMath::Max(1, Grid.Borders.ThicknessCells) - 1;
+		TArray<int32> Slices;
+		if (IsFlat())
+		{
+			Slices.Add(Grid.Depth.PlaneCellY());
+		}
+		else
+		{
+			for (int32 Y = 0; Y < Grid.DepthCells(); ++Y)
+			{
+				if (Grid.Depth.IsFillBand(Grid.Depth.GetBand(Y)))
+				{
+					Slices.Add(Y);
+				}
+			}
+		}
+
+		for (int32 X = FMath::Max(0, MinX); X <= FMath::Min(Grid.SizeXZ.X - 1, MaxX); ++X)
+		{
+			for (const int32 Y : Slices)
+			{
+				const FIntVector Key(X, Y, Row);
+				const FIntVector Above(X, Y, Row + 1);
+				const bool bFloor = !Grid.IsSolid(Above) && !Grid.IsBorderCell(Above) && IsTrodden(X, Row + 1);
+				const FMazeCell* Stored = Grid.Find(Key);
+
+				if (bFloor)
+				{
+					++Floors;
+					if (!Stored || Stored->Type != EMazeCellType::Floor)
+					{
+						Changed += Grid.Set(Key, FMazeCell(EMazeCellType::Floor)) ? 1 : 0;
+					}
+				}
+				else if (Stored && Stored->Type == EMazeCellType::Floor)
+				{
+					Changed += Grid.Clear(Key) ? 1 : 0;
+				}
+			}
+		}
+	};
+
 	if (RegionMin && RegionMax)
 	{
+		if (RegionMin->Y - Depth <= FMath::Max(1, Grid.Borders.ThicknessCells))
+		{
+			MarkBottomBorder(RegionMin->X, RegionMax->X);
+		}
+
 		// Only round a brush stroke: the columns it touched, from Depth under its lowest cell —
 		// those are the cells it may have buried or laid bare.
 		for (int32 X = RegionMin->X; X <= RegionMax->X; ++X)
@@ -649,6 +728,9 @@ int32 UMazeGridAsset::MarkFloorSurfaces(int32 Thickness, int32 AgentWidthCm, con
 	{
 		Retype(Pair.Key, Pair.Value);
 	}
+
+	// After the walk over the cells, not inside it: this adds cells to the map being walked.
+	MarkBottomBorder(0, Grid.SizeXZ.X - 1);
 
 	UE_LOG(LogMazeForge, Log,
 		TEXT("%s: floor surfaces marked — %d Floor cell(s), %d cell(s) retyped (layer %d deep)."),

@@ -1106,7 +1106,7 @@ The ground the player runs on is `Floor` cells; the rest of the mass is `Solid`.
 - **After each brush stroke**, with `Brush → Auto Floor Surfaces` on: cut a hole or draw a step and the top it laid bare becomes `Floor`; bury a floor and it becomes `Solid`. Part of the stroke's `Ctrl+Z`.
 - **On the button** `Brush → Mark Floor Surfaces` — for a maze made before this existed, or drawn by hand.
 
-Only surfaces the player can get onto count — the air above them has to be reachable, as `Check Reachability` sees it without gravity. A window sill, a pocket sealed in the mass, a slit he does not fit in stay `Solid`. The reach starts at the `Entry` points; with none, at the lowest place to stand.
+Only surfaces the player can get onto count — the air above them has to be reachable, as `Check Reachability` sees it without gravity. A window sill, a pocket sealed in the mass, a slit he does not fit in stay `Solid`. The reach starts at the `Entry` points; with none, at the lowest place to stand. The edges of the map count too: the bottom border where he walks on it, and roofs open to the sky when `Grid → Borders → Close Top` is off.
 
 ### 20.3 An existing maze
 
