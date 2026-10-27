@@ -5,6 +5,7 @@
 #include "Assets/MazeSpawnAsset.h"
 #include "Generators/MazeGenerator_Manual.h"
 #include "MazeForgeCore.h"
+#include "Analysis/MazeReachability.h"
 #include "Spawner/MazeLadders.h"
 #include "Slicers/MazeSlicer_UniformGrid.h"
 
@@ -519,6 +520,13 @@ void UMazeGridAsset::RunGenerator()
 		FillBackWall(static_cast<uint8>(FMath::Clamp(Generator->BackWallVariant, 0, 255)));
 	}
 
+	// After the shaping and before the variants: the floors are the tops of the outline as it
+	// finally is, and the variants are then picked from the Floor palette for them.
+	if (Generator->bMarkFloorSurfaces)
+	{
+		MarkFloorSurfaces(Generator->FloorSurfaceCells);  // the stock 84 cm capsule
+	}
+
 	// Last, so the back wall gets mixed as well.
 	if (Generator->bRandomSurfaceVariants)
 	{
@@ -526,6 +534,126 @@ void UMazeGridAsset::RunGenerator()
 	}
 
 	NotifyGridChanged();
+}
+
+int32 UMazeGridAsset::MarkFloorSurfaces(int32 Thickness, int32 AgentWidthCm, const FIntPoint* RegionMin,
+                                        const FIntPoint* RegionMax)
+{
+#if WITH_EDITOR
+	Modify();
+#endif
+
+	const int32 Depth = FMath::Max(1, Thickness);
+	int32 Changed = 0;
+	int32 Floors = 0;
+
+	// Where the player can get to, in the drawing plane: the air cells his feet can be in. A
+	// horizontal surface he can never reach — a window sill, a pocket sealed in the mass, a slit
+	// too low for him — is not ground, whatever its shape.
+	FMazeReachParams Reach;
+	Reach.AgentHeightCells = Generator ? FMath::Max(1, Generator->AgentHeightCells) : 2;
+	Reach.AgentWidthCells = FMath::Max(1, FMath::CeilToInt(AgentWidthCm / FMath::Max(1.0, Grid.CellSize.X)));
+	if (const UMazeSpawnAsset* SpawnAsset = Spawns.LoadSynchronous())
+	{
+		const UMazeObjectLibrary* Library = SpawnAsset->Library.LoadSynchronous();
+		for (const FMazePlacement& Placement : SpawnAsset->Placements)
+		{
+			const FMazeObjectType* Type = Library ? Library->FindType(Placement.TypeId) : nullptr;
+			if (Type && Type->TransitionRole == EMazeTransitionRole::Entry)
+			{
+				Reach.Starts.Add(Placement.CellXZ);
+			}
+		}
+	}
+
+	FMazeReachResult Reached;
+	MazeReachability::Solve(Grid, Reach, Reached);
+
+	// The cells his feet stand in: every reached position, across his whole width.
+	TBitArray<> Trodden(Reached.UsedStarts.Num() == 0, Reached.Size.X * Reached.Size.Y);
+	for (int32 Z = 0; Z < Reached.Size.Y && Reached.UsedStarts.Num() > 0; ++Z)
+	{
+		for (int32 X = 0; X < Reached.Size.X; ++X)
+		{
+			if (Reached.IsReached(X, Z))
+			{
+				for (int32 Dx = 0; Dx < Reach.AgentWidthCells && X + Dx < Reached.Size.X; ++Dx)
+				{
+					Trodden[Reached.Index(X + Dx, Z)] = true;
+				}
+			}
+		}
+	}
+	auto IsTrodden = [&Reached, &Trodden](int32 X, int32 Z)
+	{
+		return Reached.IsInside(X, Z) && Trodden[Reached.Index(X, Z)];
+	};
+
+	// Retyping changes nothing IsSolid sees, so the neighbours read while walking stay what
+	// they were — no second copy of the grid is needed.
+	auto Retype = [this, Depth, &Changed, &Floors, &IsTrodden](const FIntVector& Key, FMazeCell& Cell)
+	{
+		if (!Cell.IsSolid())
+		{
+			return;
+		}
+
+		// Up through the mass, at most Depth cells: open air there means this cell is the top of
+		// a surface or lies within Depth of it. The top of the grid and the world border are
+		// not air — nobody runs along the roof of the map.
+		bool bFloor = false;
+		for (int32 Up = 1; Up <= Depth; ++Up)
+		{
+			const FIntVector Above(Key.X, Key.Y, Key.Z + Up);
+			const FMazeCell* Over = Grid.Find(Above);
+			if (!Over || !Over->IsSolid())
+			{
+				bFloor = Grid.IsInside(Above) && !Grid.IsBorderCell(Above) && IsTrodden(Above.X, Above.Z);
+				break;
+			}
+		}
+
+		const EMazeCellType Wanted = bFloor ? EMazeCellType::Floor : EMazeCellType::Solid;
+		Floors += bFloor ? 1 : 0;
+		if (Cell.Type != Wanted)
+		{
+			// The variant index belongs to the old type's palette.
+			Cell.Type = Wanted;
+			Cell.PaletteIndex = 0;
+			++Changed;
+		}
+	};
+
+	if (RegionMin && RegionMax)
+	{
+		// Only round a brush stroke: the columns it touched, from Depth under its lowest cell —
+		// those are the cells it may have buried or laid bare.
+		for (int32 X = RegionMin->X; X <= RegionMax->X; ++X)
+		{
+			for (int32 Z = RegionMin->Y - Depth; Z <= RegionMax->Y; ++Z)
+			{
+				for (int32 Y = 0; Y < Grid.DepthCells(); ++Y)
+				{
+					const FIntVector Key(X, Y, Z);
+					if (FMazeCell* Cell = Grid.Cells.Find(Key))
+					{
+						Retype(Key, *Cell);
+					}
+				}
+			}
+		}
+		return Changed;
+	}
+
+	for (TPair<FIntVector, FMazeCell>& Pair : Grid.Cells)
+	{
+		Retype(Pair.Key, Pair.Value);
+	}
+
+	UE_LOG(LogMazeForge, Log,
+		TEXT("%s: floor surfaces marked — %d Floor cell(s), %d cell(s) retyped (layer %d deep)."),
+		*GetName(), Floors, Changed, Depth);
+	return Changed;
 }
 
 void UMazeGridAsset::RandomizeSurfaceVariants(int32 PatchCells, uint32 Seed)

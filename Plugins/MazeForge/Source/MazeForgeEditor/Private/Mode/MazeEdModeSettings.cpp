@@ -713,6 +713,19 @@ void UMazeEdModeSettings::ClearBackWall()
 	}
 }
 
+void UMazeEdModeSettings::MarkFloorSurfaces()
+{
+	if (UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Floor surfaces")))
+	{
+		const int32 Thickness = Asset->Generator ? Asset->Generator->FloorSurfaceCells : 1;
+
+		const FScopedTransaction Transaction(LOCTEXT("MazeMarkFloors", "MazeForge: Mark Floor Surfaces"));
+		Asset->MarkFloorSurfaces(Thickness, AgentWidthCm);
+		Asset->NotifyGridChanged();
+		RefreshStatus();
+	}
+}
+
 void UMazeEdModeSettings::SaveSnapshot()
 {
 	if (UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Snapshot")))

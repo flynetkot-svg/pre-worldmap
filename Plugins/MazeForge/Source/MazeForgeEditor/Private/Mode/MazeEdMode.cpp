@@ -2215,6 +2215,9 @@ void UMazeEdMode::BeginStroke(bool bInErase, bool bInBox)
 	bBoxDrag = bInBox;
 	DragStartCell = HoveredCell;
 	StrokeChangedCells = 0;
+	StrokeMin = FIntPoint(HoveredCell.X, HoveredCell.Z);
+	StrokeMax = StrokeMin;
+	GrowStroke(HoveredCell);
 
 	// One transaction per whole stroke: Ctrl+Z undoes the entire stroke, not a single cell.
 	GEditor->BeginTransaction(bInErase
@@ -2238,6 +2241,7 @@ void UMazeEdMode::ContinueStroke()
 
 	const int32 Changed = ApplyBrushAt(HoveredCell, bErasing);
 	StrokeChangedCells += Changed;
+	GrowStroke(HoveredCell);
 
 	if (Changed == 0)
 	{
@@ -2267,6 +2271,16 @@ void UMazeEdMode::EndStroke()
 	if (Asset && bBoxDrag && bHasHover)
 	{
 		StrokeChangedCells += ApplyBox(DragStartCell, HoveredCell, bErasing);
+		GrowStroke(HoveredCell);
+	}
+
+	// Inside the stroke's transaction, so one Ctrl+Z takes the floors back with the cells.
+	// Not for the back wall: it is no mass, and buries or lays bare nothing.
+	if (Asset && StrokeChangedCells > 0 && Settings && Settings->bAutoFloorSurfaces
+		&& Settings->PaintType != EMazeCellType::BackWall)
+	{
+		const int32 Thickness = Asset->Generator ? Asset->Generator->FloorSurfaceCells : 1;
+		Asset->MarkFloorSurfaces(Thickness, Settings->AgentWidthCm, &StrokeMin, &StrokeMax);
 	}
 
 	bPainting = false;
@@ -2283,6 +2297,16 @@ void UMazeEdMode::EndStroke()
 
 	StrokeChangedCells = 0;
 	bErasing = false;
+}
+
+void UMazeEdMode::GrowStroke(const FIntVector& Centre)
+{
+	// The brush square round the centre, as ApplyBrushAt paints it, with a cell to spare.
+	const int32 Half = Settings ? FMath::Max(0, Settings->BrushSize - 1) / 2 + 1 : 1;
+	StrokeMin.X = FMath::Min(StrokeMin.X, Centre.X - Half);
+	StrokeMin.Y = FMath::Min(StrokeMin.Y, Centre.Z - Half);
+	StrokeMax.X = FMath::Max(StrokeMax.X, Centre.X + Half);
+	StrokeMax.Y = FMath::Max(StrokeMax.Y, Centre.Z + Half);
 }
 
 bool UMazeEdMode::ApplyPathClick(bool bShift, bool bCtrl)

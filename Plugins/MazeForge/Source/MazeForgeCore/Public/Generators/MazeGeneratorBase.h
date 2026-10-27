@@ -71,6 +71,22 @@ public:
 	bool bRandomSurfaceVariants = false;
 
 	/**
+	 *  Make every horizontal surface of the mass — the tops the player runs along — Floor
+	 *  cells, and the rest of the mass Solid, once the drawing is done.
+	 *
+	 *  Floor and Solid are the same mass; Floor has its own surface in the palette, so the
+	 *  ground gets its own material whatever the generator drew it as. On the base class, so
+	 *  every generator does it — a mesh or an image knows nothing about which way is up.
+	 */
+	UPROPERTY(EditAnywhere, Category = "Generation")
+	bool bMarkFloorSurfaces = true;
+
+	/** How deep the Floor layer goes under each surface, in cells. */
+	UPROPERTY(EditAnywhere, Category = "Generation",
+		meta = (ClampMin = "1", UIMax = "8", EditCondition = "bMarkFloorSurfaces"))
+	int32 FloorSurfaceCells = 1;
+
+	/**
 	 *  One variant per square patch of this many cells. 1 — every cell on its own: noisy, and
 	 *  every seam between two materials is a face the bake cannot merge.
 	 */

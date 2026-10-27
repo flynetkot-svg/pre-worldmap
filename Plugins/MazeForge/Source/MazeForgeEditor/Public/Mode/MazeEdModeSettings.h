@@ -350,6 +350,15 @@ public:
 		meta = (EditCondition = "Tool == EMazeEditTool::Objects", EditConditionHides))
 	EMazeDepthBand PaintBand = EMazeDepthBand::Play;
 
+	/**
+	 *  After each stroke of the cell brush, retype the mass round it: a top the stroke laid bare
+	 *  — a hole cut, a step drawn — becomes Floor, a floor it buried becomes Solid. The same rule
+	 *  as Mark Floor Surfaces, as deep as the generator's Floor Surface Cells.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Brush",
+		meta = (EditCondition = "Tool == EMazeEditTool::Cells", EditConditionHides))
+	bool bAutoFloorSurfaces = true;
+
 	UPROPERTY(EditAnywhere, config, Category = "Brush", meta = (ClampMin = "1", ClampMax = "16",
 		EditCondition = "Tool == EMazeEditTool::Cells", EditConditionHides))
 	int32 BrushSize = 1;
@@ -550,6 +559,15 @@ public:
 	UFUNCTION(CallInEditor, Category = "Brush",
 		meta = (DisplayName = "Clear Back Wall", DisplayPriority = "2"))
 	void ClearBackWall();
+
+	/**
+	 *  Makes every horizontal surface the player runs along Floor, and the rest of the mass
+	 *  Solid — for any maze, drawn by hand or generated. As deep as the generator's Floor
+	 *  Surface Cells (1 without a generator). One undo step.
+	 */
+	UFUNCTION(CallInEditor, Category = "Brush",
+		meta = (DisplayName = "Mark Floor Surfaces", DisplayPriority = "2"))
+	void MarkFloorSurfaces();
 
 	/**
 	 *  Removes every placement from the target's spawn asset.

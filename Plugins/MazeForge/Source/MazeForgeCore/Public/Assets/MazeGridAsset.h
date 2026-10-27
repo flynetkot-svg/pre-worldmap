@@ -262,6 +262,23 @@ public:
 	 */
 	void RandomizeSurfaceVariants(int32 PatchCells, uint32 Seed);
 
+	/**
+	 *  Retypes the mass: a cell with open air above it — the top of a horizontal surface —
+	 *  and the Thickness - 1 cells under it become Floor, every other cell of mass Solid. Every
+	 *  slice of the depth; back wall cells are left alone. A retyped cell goes back to surface
+	 *  variant 0. Returns how many cells changed type.
+	 *
+	 *  With a region (XZ, inclusive): only the columns in it, from Thickness under its bottom —
+	 *  what a brush stroke there can have buried or laid bare.
+	 *
+	 *  Only surfaces the player can actually get onto: the air above has to be reachable — the
+	 *  check of Check Reachability without gravity, from the Entry points or the lowest place to
+	 *  stand, AgentWidthCm wide and the generator's Agent Height tall. The sill of a window, a
+	 *  pocket sealed in the mass, a slit he does not fit in stay Solid.
+	 */
+	int32 MarkFloorSurfaces(int32 Thickness, int32 AgentWidthCm = 84, const FIntPoint* RegionMin = nullptr,
+	                        const FIntPoint* RegionMax = nullptr);
+
 	/** Removes every back wall cell. The maze itself is untouched. */
 	void ClearBackWall();
 

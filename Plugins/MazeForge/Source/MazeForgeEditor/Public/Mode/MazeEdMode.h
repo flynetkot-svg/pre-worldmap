@@ -269,6 +269,11 @@ private:
 	FDelegateHandle GridChangedHandle;
 	int32 StrokeChangedCells = 0;
 
+	/** The XZ cells the current stroke has touched, inclusive — for retyping floors round it. */
+	FIntPoint StrokeMin = FIntPoint::ZeroValue;
+	FIntPoint StrokeMax = FIntPoint::ZeroValue;
+	void GrowStroke(const FIntVector& Centre);
+
 	/** Time of the last preview rebuild. Used to throttle rebuilds during a stroke. */
 	double LastPreviewRebuildTime = 0.0;
 };

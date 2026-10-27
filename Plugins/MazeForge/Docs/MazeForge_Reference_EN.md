@@ -117,6 +117,7 @@ Doors and keys: library types with `Lock Role` `Door` or `Key`, paired by the `L
 | `Tool` | `Cells` | optional | What the mouse does: paints the mass of the maze (`Cells`), places objects (`Objects`), merges rooms (`Rooms`), plans the Classic generator's paths (`Path`) or stands ladders (`Ladder`). A tool rather than a modifier key, because cells go into the grid and objects into the spawn asset, and a key that silently changes which file a click edits is a good way to lose work. |
 | `Paint Type` | `Solid` | optional | The cell type. Visible only when `Tool = Cells`. |
 | `Brush Size` | `1` | optional | The side of the brush square, 1–16. Visible only when `Tool = Cells`. |
+| `Auto Floor Surfaces` | on | optional | After each stroke, retype the mass round it: a reachable top the stroke laid bare — a hole cut, a step drawn — becomes `Floor`, a floor it buried `Solid`. Part of the stroke's undo. Not for back wall strokes. Visible only when `Tool = Cells`. |
 | `Paint Object Type` | empty | output | The selected object type. Set by clicking a swatch in the palette: a `Climb` type picks the `Ladder` tool, any other the `Objects` tool. Visible with `Tool = Objects` or `Ladder`. |
 | `Paint Lock Id` | `Red` | optional | The `Lock Id` given to doors and keys placed with the brush: one red key opens every red door. Ignored for other objects. Visible only when `Tool = Objects`. |
 | `Paint Band` | `Play` | **matters** | Which depth band new objects go into. Visible only when `Tool = Objects`. For transition points it must be `Play`. |
@@ -128,6 +129,7 @@ Doors and keys: library types with `Lock Role` `Door` or `Key`, paired by the `L
 |---|---|
 | **Fill Back Wall** | Fills the whole maze with back wall, using `Paint Variant`. A starting point, not a final look: the back wall is off by default, painting a 707×376 map by hand is hours, and a forgotten patch is a hole into the skybox that only shows up in game. |
 | **Clear Back Wall** | Removes all of it. |
+| **Mark Floor Surfaces** | For any maze, drawn or generated: every horizontal surface the player can get onto becomes `Floor`, the rest of the mass `Solid` — the same rule as the generator's `Mark Floor Surfaces`. One undo step. |
 | **Place All Ladders** | A ladder in every hole of the maze that has none yet, from the floor to the first exit above. See [17](#17-ladders). |
 | **Clear All Ladders** | Removes every ladder and ladder platform, hand-placed ones included. One undo step. |
 | **Save Ladder Map** | Saves every ladder and platform now placed into the maze's ladder map, replacing the previous one. |
@@ -915,6 +917,8 @@ The maze asset's `Generator` field; the mode panel shows it under `Maze Features
 | `Back Wall Variant` | `0` | The surface variant of that back wall. |
 | `Random Surface Variants` | off | Mix the surface variants of the palette (Build Settings) over the generated mass, floor and back wall, instead of painting everything with the first one. Repeats with the same `Seed`. |
 | `Surface Variant Patch Cells` | `8` | One variant per square patch of this many cells, the same through the whole depth. `1` — every cell on its own: noisy, and every seam between two materials is a face the bake cannot merge. |
+| `Mark Floor Surfaces` | on | Once the drawing is done, make every horizontal surface the player can get onto `Floor` and the rest of the mass `Solid`, so the ground gets the `Floor` surface of the palette whatever the generator drew it as. Only reachable surfaces count: the air above has to be reachable the way `Check Reachability` sees it without gravity — a window sill, a pocket sealed in the mass or a slit he does not fit in stays `Solid`. |
+| `Floor Surface Cells` | `1` | How deep the `Floor` layer goes under each such surface. |
 | `Agent Height Cells` | `2` | The player's height in cells. A passage lower than this is a wall to him, and the shaping keeps this much headroom above every floor. The stock capsule is 176 cm: two cells of 100, four of 50. |
 
 ### Dead ends
