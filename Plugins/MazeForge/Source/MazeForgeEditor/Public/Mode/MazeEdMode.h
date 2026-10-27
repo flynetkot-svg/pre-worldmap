@@ -130,6 +130,17 @@ private:
 	 */
 	bool ApplyLadderClick(bool bShift);
 
+	/**
+	 *  Where the Ladder tool's bottom goes for a click at Cursor: on top of a ladder already
+	 *  there (its column and level) if one ends within about a metre, else the nearest floor or
+	 *  exit of the column. False when the cursor is in mass.
+	 */
+	bool PickLadderBottom(const FMazeGrid& Grid, const FIntPoint& Cursor, FIntPoint& OutBase,
+	                      bool& bOutOnFloor) const;
+
+	/** How far, in rows, the top of a ladder snaps to an exit: about a metre. */
+	static int32 LadderTopTolerance(const FMazeGrid& Grid);
+
 	/** The Ladder tool's verdict for the hovered cell, ready to append to the HUD line. */
 	FString LadderHoverStatus(const UMazeGridAsset& Asset) const;
 

@@ -1,7 +1,7 @@
 ﻿# MazeForge — Reference
 
 **For:** looking up what a particular field, button or log line means.
-**Version:** MazeForge 0.4.0 · Unreal Engine 5.8.2
+**Version:** MazeForge 0.5.0 · Unreal Engine 5.8.2
 **How to build a first world:** `MazeForge_QuickStart_EN.md`
 **По-русски:** `MazeForge_Reference_RU.md`
 
@@ -30,6 +30,9 @@ In the tables, "Default" is what a freshly created asset has in that field. "Set
 12. [Enumerations](#12-enumerations)
 13. [Log messages](#13-log-messages)
 14. [What refers to what](#14-what-refers-to-what)
+15. [Generators](#15-generators)
+16. [Reachability, paths, doors and keys](#16-reachability-paths-doors-and-keys)
+17. [Ladders](#17-ladders)
 
 ---
 
@@ -41,27 +44,81 @@ The sections appear top to bottom in this order. The order is set explicitly; ot
 
 | Field | Default | Set it? | Meaning |
 |---|---|---|---|
-| `Target Asset` | empty | **required** | Which maze is being edited. Without it the panel draws nothing and all fourteen buttons refuse with `no Target Asset set`. |
+| `Target Asset` | empty | **required** | Which maze is being edited. Without it the panel draws nothing and every button refuses with `no Target Asset set`. |
 | `Status` | — | output | The state of the target in one line: plane or volume, cells, rooms, meshes, snapshot. |
 
 The chosen target survives an editor restart: the panel is stored in `EditorPerProjectUserSettings.ini`.
 
 ### Generate
 
-One button, no fields.
-
-| Button | What it does |
+| Field / button | What it does |
 |---|---|
-| **Generate Maze** | Fills the grid using the generator set on the maze asset. Snapshots whatever is drawn first. Disabled while the generator is `Manual` — the caption under it says so. |
+| caption | Which generator the target uses, or that it is drawn by hand. |
+| **Generate Maze** | Fills the grid using the generator set on the maze asset. Snapshots whatever is drawn first. Disabled while the generator is `Manual` — the caption says so. |
+| `Seed` | The generator's seed, edited right here. The same seed always gives the same maze. |
+| **Reroll** | A new random seed and a fresh maze in one press. |
+
+### Maze Features
+
+The target's `Generator` — its class picker and every one of its settings — shown right in the panel, so the maze asset does not have to be opened. The generator's fields are in [15. Generators](#15-generators).
+
+| Field / button | Default | Set it? | Meaning |
+|---|---|---|---|
+| `Regenerate On Change` | on | optional | Generate the maze again as soon as a generator setting is committed — a slider when it is let go, not on every step. Every run snapshots the drawing first. Off — only `Generate Maze` generates. |
+| `Target Dead Ends` | `0` | optional | What `Find Seed` aims for: this many dead ends. `0` — not a target. |
+| `Target Min Branch Depth` | `0` | optional | The average branch depth, in grid cells, to reach at least. |
+| `Target Nesting` | `0` | optional | Levels of branch-off-a-branch. |
+| `Target Min Confusion` | `50` | optional | The confusion score (0–100) to reach at least. |
+| `Seed Tries` | `20` | optional | How many seeds `Find Seed` tries. |
+| **Find Seed** | — | — | Generates the maze with `Seed Tries` seeds, analyses each the way `Analyze Paths` does, and keeps the one closest to the targets. Any generator. One undo step back to before the search. |
+| **Clear Path Plan** | — | — | Removes the main path and branches planned with the `Path` tool. The next generation is random again. |
+
+### Reachability
+
+Can the player get everywhere from where he arrives, and what is the maze like as he walks it. In detail: [16](#16-reachability-paths-doors-and-keys).
+
+| Field / button | Default | Set it? | Meaning |
+|---|---|---|---|
+| `Require Ladders` | off | optional | Off — every shaft he fits in counts as a way up, on the understanding that a ladder or a lift will stand there; what is reported is the pieces nothing could lead into. On — he walks, falls, steps or jumps up, and climbs only where a `Climb` object stands. |
+| `Agent Width Cm` | `84` | optional | How wide the player is. A slit narrower than this is a wall. |
+| `Step Up Cm` | `45` | optional | How high he steps up without jumping. `Require Ladders` only. |
+| `Jump Height Cm` | `0` | optional | How high a jump gets him. `0` — the check assumes he does not jump. `Require Ladders` only. |
+| `Fix Ladder Type` | empty | optional | The ladder `Fix Reachability` stands in a shaft that has to be climbed. Empty — the Classic generator's `Ladder Type`. Also the `Ladder` tool's second choice. |
+| `Fix Shaft Width Cells` | `2` | optional | Width of the shafts `Fix Reachability` cuts. |
+| `Reachability Status` | — | output | What the last check found. |
+| **Check Reachability** | — | — | Hatches the rooms nobody can reach red and the rooms reached in part orange; frames in red the doors and keys something is wrong with. |
+| **Fix Reachability** | — | — | Joins every unreachable piece to the rest: a tunnel along the floor and a shaft, with a ladder where the way leads up. One undo step. |
+| **Analyze Paths** | — | — | The main path from the start to the exit, the branches, dead ends, loops and a confusion score, drawn over the maze. |
+| `Path Status` | — | output | What the last analysis found. |
+
+### Locks
+
+Doors and keys: library types with `Lock Role` `Door` or `Key`, paired by the `Lock Id` on the placement. In detail: [16](#16-reachability-paths-doors-and-keys).
+
+| Field / button | Default | Meaning |
+|---|---|---|
+| `Lock Count` | `2` | How many doors `Generate Locks` places, each with its key. |
+| `Lock Door Type`, `Lock Key Type` | empty | The library types. Empty — the first type with that `Lock Role`. |
+| `Lock Ids` | `Red, Blue, Yellow` | Handed out in turn. More locks than names — a colour opens more than one door. |
+| `Min Rooms Between Key And Door` | `1` | Rooms that must lie between a door and its key. `1` — never in the same room or in neighbouring ones, so the two are never loaded together around the player. |
+| `Max Rooms Between Key And Door` | `0` | The most rooms between them. `0` — no limit. |
+| `Max Lock Nesting` | `3` | Most doors in a row a key may hide behind. `1` — keys lie in the open. |
+| `Max Keys Held` | `3` | Most keys that come into reach at once, before any of their doors can be opened. |
+| `Max Locked Share` | `0.6` | The most of the maze one door may close off, as a share of the places to stand. |
+| `Min Locked Cells` | `20` | A door is worth placing only if it closes off at least this many places to stand. |
+| `Lock Seed` | `1` | Same seed, same maze — same doors and keys. |
+| **Generate Locks** | — | Places the doors and keys. Doors and keys placed by hand stay and are taken into account; the ones from the previous run are replaced. |
+| **Clear Generated Locks** | — | Removes only what `Generate Locks` placed. |
 
 ### Brush
 
 | Field | Default | Set it? | Meaning |
 |---|---|---|---|
-| `Tool` | `Cells` | optional | What the mouse draws: the mass of the maze (`Cells`), objects (`Objects`) or the room layout (`Rooms`). A tool rather than a modifier key, because cells go into the grid and objects into the spawn asset, and a key that silently changes which file a click edits is a good way to lose work. |
+| `Tool` | `Cells` | optional | What the mouse does: paints the mass of the maze (`Cells`), places objects (`Objects`), merges rooms (`Rooms`), plans the Classic generator's paths (`Path`) or stands ladders (`Ladder`). A tool rather than a modifier key, because cells go into the grid and objects into the spawn asset, and a key that silently changes which file a click edits is a good way to lose work. |
 | `Paint Type` | `Solid` | optional | The cell type. Visible only when `Tool = Cells`. |
 | `Brush Size` | `1` | optional | The side of the brush square, 1–16. Visible only when `Tool = Cells`. |
-| `Paint Object Type` | empty | output | The selected object type. Set by clicking a swatch in the palette. Visible only when `Tool = Objects`. |
+| `Paint Object Type` | empty | output | The selected object type. Set by clicking a swatch in the palette: a `Climb` type picks the `Ladder` tool, any other the `Objects` tool. Visible with `Tool = Objects` or `Ladder`. |
+| `Paint Lock Id` | `Red` | optional | The `Lock Id` given to doors and keys placed with the brush: one red key opens every red door. Ignored for other objects. Visible only when `Tool = Objects`. |
 | `Paint Band` | `Play` | **matters** | Which depth band new objects go into. Visible only when `Tool = Objects`. For transition points it must be `Play`. |
 | `Paint Variant` | `0` | optional | The surface variant written into the cell. Which variants exist is decided by the palette in the build settings, per cell type. An index the type does not declare is not an error — the cell simply gets the base surface. |
 | `Depth Apply` | `Fill Bands` | leave alone | Where a stroke lands in depth. `Fill Bands` follows the flags of the depth profile — the normal mode. The other three (`Active Slice Only`, `All Depth`, `Play Band Only`) are pinpoint edits. |
@@ -71,6 +128,10 @@ One button, no fields.
 |---|---|
 | **Fill Back Wall** | Fills the whole maze with back wall, using `Paint Variant`. A starting point, not a final look: the back wall is off by default, painting a 707×376 map by hand is hours, and a forgotten patch is a hole into the skybox that only shows up in game. |
 | **Clear Back Wall** | Removes all of it. |
+| **Place All Ladders** | A ladder in every hole of the maze that has none yet, from the floor to the first exit above. See [17](#17-ladders). |
+| **Clear All Ladders** | Removes every ladder and ladder platform, hand-placed ones included. One undo step. |
+| **Save Ladder Map** | Saves every ladder and platform now placed into the maze's ladder map, replacing the previous one. |
+| **Load Ladder Map** | Replaces the ladders now placed with the saved ladder map. One undo step. |
 
 **The `Rooms` tool** — the room layout on top of the `Uniform Grid` slicer's lattice.
 
@@ -81,13 +142,32 @@ One button, no fields.
 
 Merged rooms are hatched, each in its own colour — only in this tool and only until `Apply Changes`. The status line shows `merges N` and, while the layout is not applied, `N ROOMS AFTER APPLY`. A merged room is named after its bottom-left cell; if that name is new, the log lists the rooms that will be retired. Each drag is one transaction; `Ctrl+Z` undoes it whole.
 
+**The `Path` tool** — plans the main path and the branches for the Classic generator's `Path First` style. The plan is drawn yellow (main path) and cyan (branches); with `Regenerate On Change` the maze follows each click.
+
+| Action | What it does |
+|---|---|
+| LMB | A point on the main path. |
+| `Shift` + LMB | A point on the last branch. |
+| `Ctrl` + `Shift` + LMB | A new branch. |
+| `Ctrl` + LMB | Removes the nearest point. |
+
+**The `Ladder` tool** — stands ladders, two clicks each. Which ladder: the `Climb` type picked in the palette, else `Fix Ladder Type`, else the Classic generator's `Ladder Type`. In detail: [17](#17-ladders).
+
+| Action | What it does |
+|---|---|
+| first LMB | The bottom. Snaps to the top of a ladder already standing within about a metre — and takes its column, so ladders stack exactly; else to the nearest floor or exit of the column. |
+| second LMB | The top. Snaps to the nearest exit within about a metre, else to the highest exit below the cursor, else to the cursor itself, kept under the ceiling. One ladder the whole length, a platform on top. |
+| `Shift` + LMB | Cancels a started ladder; otherwise removes every ladder piece in the column under the cursor. |
+
+Before the first click the cell the bottom snaps to is green and the exits of the column amber; after it the ladder to be is drawn whole, with its rungs. The status line gives the height in centimetres and the value of `Climb Height Property`.
+
 ### Objects
 
 | Field | Default | Set it? | Meaning |
 |---|---|---|---|
 | `Spawn Rules` | empty | required for `Generate Objects` | How much of what a generated pass scatters. Read by `Generate Objects` and by nothing else. |
 
-Below it is the object palette. With no library, the swatches are replaced by a line saying exactly what is not filled in. Clicking a swatch also switches `Tool` to `Objects`.
+Below it is the object palette. With no library, the swatches are replaced by a line saying exactly what is not filled in. Clicking a swatch also switches `Tool` to `Objects` — or to `Ladder` for a `Climb` type.
 
 | Button | What it does |
 |---|---|
@@ -135,12 +215,13 @@ The snapshot holds **only the grid**. Object placements are not in it.
 
 ### Edit
 
-Two buttons for editing a maze that has already been built. Disabled until it has been.
+Buttons for editing a maze that has already been built. Disabled until it has been.
 
 | Button | What it does |
 |---|---|
 | **Change Current Maze** | Detaches the levels, flattens the volume back to a plane and sets the active slice to the drawing plane. Flattening is exact: a column that had at least one solid cell stays a cell. |
 | **Apply Changes To Current Maze** | The same work as `Apply Changes`. The two differ in what they mean, not in what they do: one says "build this", the other "put back what I was editing". |
+| **Bind Decor To Rooms** | Moves actors you placed by hand from the persistent level into the level of the room they stand in, into the room's `DesignerObjects` Outliner folder with your own folders kept underneath. Actors moved earlier that now stand in another room move again; those in rooms a re-slicing abolished go to their new room, or back to the persistent level if they stand in none. Left where they are: the classes and the tag under `Build Settings → Decor`, info actors (game mode, world settings…), and actors implementing `IMazeKeepInPersistentLevel`. The log counts each case. |
 
 ### World
 
@@ -182,7 +263,7 @@ The source of truth for the whole pipeline. There are deliberately no buttons in
 |---|---|---|---|
 | `Grid` | empty | **required** | The grid: cell size, extents, depth profile, world borders, origin. |
 | `Grid → World Origin` | `(0, 0, 0)` | optional, but see below | Shift of the whole grid in the world. Along Y the `Play` centre is already accounted for; this is an extra offset. |
-| `Generator` | created for you | optional | What fills the grid: manual, random, from an image, from a mesh. |
+| `Generator` | created for you | optional | What fills the grid: manual, random, classic maze, from an image, from a mesh. Its fields: [15](#15-generators); also shown in the panel under `Maze Features`. |
 | `Slicer` | created for you | optional | What cuts it into rooms. `Uniform Grid` with a 32×32-cell room by default. |
 | `Rooms` | empty | output | The slicing result. |
 | `Maze Name` | empty | **required once there are two mazes** | A short name. See below. |
@@ -246,6 +327,7 @@ It answers "how to build", not "where it lands". The latter is `Maze Name`'s job
 | `Outliner Root Folder` | `Levels` | Root folder for generated actors. Empty — do not arrange anything. |
 | `Outliner Mesh Sub Folder` | `MazeMeshes` | Sub-folder for meshes inside the room folder. |
 | `Outliner Object Sub Folder` | `MazeObjects` | Sub-folder for spawned objects. |
+| `Outliner Decor Sub Folder` | `DesignerObjects` | Sub-folder for hand-placed decor moved in by `Bind Decor To Rooms`. Your own folders are kept beneath it: `Props/Barrels` becomes `…/DesignerObjects/Props/Barrels`. Empty — straight into the room folder. |
 | `Outliner Folder Per Room` | on | A separate folder per room. Turn it off for small mazes: two hundred folders help, a dozen only adds clicks. |
 
 The arrangement exists for one thing: one eye icon in the Outliner hides all the generated geometry of a room while your decor and the anchor stay visible. Hiding the walls to look at where the crates ended up is something you do constantly.
@@ -265,6 +347,16 @@ The arrangement exists for one thing: one eye icon in the Outliner hides all the
 | `Merge Materials` | off | Merge materials into an atlas. More expensive in time, cheaper in draw calls. |
 | `Cull Enclosed Cells` | on | Throw away cells fully surrounded by solid. The main geometry saving. |
 | `Cull Far Boundary Faces` | off | Do not build the far world face along −Y. It is not visible in game and it saves a whole layer of quads per room. But the mesh then stays open, and a free camera in debugging will see a hole. Off by default: correct geometry matters more; turn it on deliberately for the sake of the budget. |
+| `Merge Coplanar Faces` | on | Join neighbouring faces that lie in one plane and share a material into one quad: a wall twenty cells long is one quad instead of twenty — on a fine grid tens of times fewer triangles for the same picture. The UVs are world-space, so a texture runs across a joined quad exactly as across the cells. Off — one quad per cell face. |
+
+### Decor
+
+What `Bind Decor To Rooms` leaves in the persistent level even when it stands inside a room: the things a whole map shares rather than a room — the sun, the sky, the fog, where the player starts. Streamed out with a room, they would switch off with it.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Decor Stay In Main Classes` | empty | Classes that stay; subclasses count. Info actors (game mode, world settings and the like) are never moved, listed or not. |
+| `Decor Stay In Main Tag` | `MazeForge.StayInMain` | Put this tag on a single actor to keep it in the persistent level. |
 
 ### Palette
 
@@ -315,6 +407,7 @@ The only field is `Types`. Each entry:
 | `Offset` | zero | optional | A nudge inside the cell, in units. A lamp hanging a little below the ceiling. |
 | `Scale` | `(1, 1, 1)` | optional | The size the actor is spawned at. See below. |
 | `Transition Role` | `None` | required for transitions | `Gate` or `Entry`. |
+| `Lock Role` | `None` | required for doors and keys | `Door` closes the passage it stands in, floor to ceiling, until a key with the same `Lock Id` has been picked up; `Key` is picked up on touch. The reachability check and `Generate Locks` read it. In the game the actor needs a `Maze Lock` or `Maze Key` component. |
 
 > **Why `Scale` lives here.** The export owns every actor it makes: each `Apply Changes` destroys them and builds them again from the type. A size typed into the level survives exactly until the next `Apply`. Set here, it comes back every time.
 >
@@ -325,6 +418,23 @@ The only field is `Types`. Each entry:
 > **The `Floor` anchor and the `Floor` cell type are two different things with one name.** The anchor does not look at the cell type at all: it asks whether there is **mass** under the bottom edge of the footprint, and both `Solid` and `Floor` count as mass. A maze drawn entirely out of `Solid` is perfect ground for floor-anchored objects — the fact that the generator never paints `Floor` cells has no bearing on it.
 
 > **The world border counts as support too.** It is painted into no cell and does not depend on depth — `IsBorderCell` looks only at X and Z — but the export builds it as real mass. So an object may legitimately stand on the bottom border of the map. It cannot be placed inside the border: those cells are impassable, and the brush says so in a line of its own.
+
+### Ladder
+
+| Field | Default | Set it? | Meaning |
+|---|---|---|---|
+| `Top Piece Type` | empty | optional | The platform stood at the top of the ladder, its pivot on the level the ladder reaches. Give the platform type the `Free` anchor: there is a hole under it, not a floor. Empty — a ladder without a platform. |
+| `Climb Height Property` | empty | optional | A number property on the actor, int or float, that gets the height of the climb — `NumberOfRungs`, say. Set at export, after which the construction script runs again, so a ladder that builds itself is exactly as tall as its climb. |
+| `Climb Unit Cm` | `0` | with the property | Centimetres per one unit of that property. For a blueprint that stacks sections, the height of one section — not the rung spacing. The height is divided by it and rounded. `0` — the height goes in as centimetres. |
+| `Climb Extra Units` | `0` | optional | Added after the division: minus the sections a top or bottom piece of the blueprint already has. |
+
+### Variants
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Random Variant` | off | Wherever this type is named as the one to place for you — a generator's `Ladder Type`, the `Ladder` tool, `Fix Reachability`, `Generate Locks`, the start and exit markers — each placement may get any library type of the same `Category` and the same role (door, key, transition, a ladder's platform or not). Random, but the same pick every time for the same spot. Give variants the same footprint: the space is checked for the type asked for. `Generate Objects` mixes on its own: a rule with `Target = Category`. |
+
+> **Snapping measures what you see.** `Snap To Anchor Surface` takes the bounds of the actor's visible parts only: trigger and collision volumes (boxes, capsules, spheres) are left out, so a ladder's "you may climb" box below its first rung no longer lifts it off the floor.
 
 ---
 
@@ -338,12 +448,29 @@ The only field is `Types`. Each entry:
 | `Library` | empty | **required** | Which library describes the types these placements refer to. |
 | `Placements` | empty | output | The placements themselves. Filled by the brush and the generator. |
 | `Next Id` | `1` | output | The next number to hand out. Only ever goes up. |
+| `Ladder Map` | empty | output | The ladders and their platforms as last saved with `Save Ladder Map`. Only written by that button. See [17](#17-ladders). |
 
 A separate asset from the grid because of lifetime, not tidiness. The maze is generated, cleared, restored and redrawn many times; the decor pass is later and far more expensive. The practical consequence: **`Clear All Changes` erases the drawing and leaves the objects alone**, and **the snapshot holds only the drawing**.
 
 > **About the numbers.** `Next Id` is a counter, not the array length: deleting a placement does not renumber the others, and a number that has been used never comes back. The numbers key a runtime registry of what the player has done to each object, so a reused number is a save pointing at the wrong thing.
 >
 > A number is handed out at the **first export**, not when you draw. A placement the export refused to build gets none — otherwise "has an id" would stop meaning "exists in the world" the first time a wall was redrawn under a crate.
+
+### One placement
+
+| Field | Meaning |
+|---|---|
+| `Type Id` | Which library type. |
+| `Cell XZ` | The bottom-left cell of the footprint. X along the level, Y up. |
+| `Band` | The depth band. The object stands in the middle of it — in `Play`, exactly on the player's plane. |
+| `Anchor` | The anchor it was placed by. The export checks it again against the geometry as it now stands. |
+| `Rotation`, `Offset` | Hand adjustments, on top of the type's own. |
+| `Id` | Identity for the save system. Handed out at the first export. |
+| `Lock Id` | Doors and keys: which keys open which doors. Any name — `Red`, `Vault`. |
+| `Climb Cells` | Ladders: how many cells the ladder climbs. Set by the ladder tools; the export sizes the ladder by it and does not check its anchor again. `0` — an ordinary object. |
+| `Generated` | Put here by `Generate Objects`. Its next run replaces it. |
+| `Structural` | Put here as part of the maze — ladders and the start and exit markers from the generator, ladders from `Fix Reachability` and `Place All Ladders`. `Generate Objects` keeps it; the next maze generation replaces it. |
+| `From Lock Generator` | Put here by `Generate Locks`. Its next run, or a new maze, replaces it. |
 
 ---
 
@@ -633,6 +760,26 @@ Two roles and no names. The world graph keys a transition by its placement id, w
 
 ---
 
+### Lock role
+
+| Value | Meaning |
+|---|---|
+| `None` | Neither. Most things. |
+| `Door` | Closes the passage it stands in until a key with the same `Lock Id` has been picked up. |
+| `Key` | Picked up on touch; opens every door with the same `Lock Id`. |
+
+### Edit tool
+
+| Value | Meaning |
+|---|---|
+| `Cells` | Paints the mass of the maze. |
+| `Objects` | Places objects from the library, one per click. |
+| `Rooms` | Merges lattice cells into rooms. |
+| `Path` | Plans the Classic generator's main path and branches. |
+| `Ladder` | Stands ladders, two clicks each. |
+
+---
+
 ## 13. Log messages
 
 Filter the Output Log by `MazeForge`.
@@ -751,3 +898,178 @@ The rules asset holds no pointer to a library at all: it names types as strings,
 6. Maze Grid                  one per maze
 7. Maze World Graph           shared, after the mazes have been built once
 ```
+
+---
+
+## 15. Generators
+
+The maze asset's `Generator` field; the mode panel shows it under `Maze Features`. Every generator has the common fields below, then its own.
+
+### Common fields
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Seed` | `1337` | The same value always gives the same maze. Also in the panel under `Generate`, with **Reroll**. |
+| `Clear Before Generate` | on | Clear the grid first. Off — draw on top of what is already there. A cleared grid takes its generated ladders and generated locks with it; doors, keys and ladders placed by hand stay. |
+| `Fill Back Wall After Generate` | off | Paint the back wall over the whole map once the drawing is done — the `Fill Back Wall` button, saved from being forgotten. |
+| `Back Wall Variant` | `0` | The surface variant of that back wall. |
+| `Random Surface Variants` | off | Mix the surface variants of the palette (Build Settings) over the generated mass, floor and back wall, instead of painting everything with the first one. Repeats with the same `Seed`. |
+| `Surface Variant Patch Cells` | `8` | One variant per square patch of this many cells, the same through the whole depth. `1` — every cell on its own: noisy, and every seam between two materials is a face the bake cannot merge. |
+| `Agent Height Cells` | `2` | The player's height in cells. A passage lower than this is a wall to him, and the shaping keeps this much headroom above every floor. The stock capsule is 176 cm: two cells of 100, four of 50. |
+
+### Dead ends
+
+A passage end is a straight stretch of corridor closed by a wall with nothing leading on — no door, no hole, no ladder. It is found in the drawing itself, so it works the same for every generator, hand-drawn images included.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Dead End Chance` | `0` | Share of passage ends that get a shape instead of a square wall. |
+| `Dead End Shapes` | a mix of all | The shapes to pick from, by weight: `Flat` (left square — keeps a share of the ends plain), `Arrow` (closes in from above and below to a point), `Slant Down` (the ceiling slopes down to the floor), `Slant Up` (the floor rises to the ceiling in steps), `Round` (a half-circle), `Polygon` (a half-hexagon). Weight `2` comes up twice as often as `1`, `0` never. |
+| `Dead End Length` | `0` | How far back from the end wall the shape reaches, in cells. `0` — at about 45 degrees. Always leaves at least one full-height column of the passage open. |
+| `Dead End Max Height` | `0` | Passages taller than this are halls, and their ends are left alone. `0` — no limit. |
+
+A passage lower than `Agent Height Cells` is not shaped either — the generator says so in the log.
+
+### Erosion
+
+Roughs up the outline: bites cells out of the mass and sticks cells back on to it. Afterwards stray single cubes and pinholes are cleaned up, so the outline is rough but has no debris.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Erosion Amount` | `0` | Share of the outline changed per pass. `0` — ruler-straight. A wall or floor one cell thick cannot be bitten — that would go straight through — so only outcrops grow on it; give the mass two or three cells for real notches. |
+| `Erosion Passes` | `2` | More passes let a bite deepen into a notch and a bump grow into an outcrop. |
+| `Erode Floors` | off | Rough up the floors the player runs along. Off: a notched floor is a floor with steps in it, and the character catches on every one. |
+| `Erode Ceilings` | on | The undersides of slabs. Nobody walks there — pure texture. |
+| `Erode Walls` | on | The vertical faces. Pure texture. |
+| `Erosion Keep Wall Cells` | `2` | Never bite into mass thinner than this: a wall eaten through is a passage nobody planned. |
+
+Both shaping passes leave ladders, holes and the headroom where the player steps off alone.
+
+### Classic
+
+The textbook maze — every point reachable, by exactly one path unless loops are asked for — laid out for a side view: a lattice of corridor cells, walls between them, floor slabs between rows, and holes with ladders between floors. It starts with `Erosion Amount 0.3` and `Dead End Chance 0.5`. Unused lattice cells stay solid.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Style` | `Long Corridors` | `Long Corridors` — long winding corridors, few deep dead ends. `Branchy` — many short branches and dead ends close to the main path. `Path First` — the main path from the start to the exit first, then a set number of branches a set depth each, then branches off those; can be planned by hand with the `Path` tool. |
+| `Vertical Bias` | `0.35` | How likely an up-or-down link is next to a sideways one. Lower — longer horizontal runs and fewer ladders, which a side-scroller reads best. Never zero. |
+| `Loop Chance` | `0` | Share of the remaining walls knocked through afterwards. `0` — a perfect maze; a little — shortcuts, so a wrong turn is not always a walk back. |
+| `Corridor Width` | `6` | Length of one corridor cell along X, in grid cells. |
+| `Corridor Height` | `4` | Clear height of a corridor. More than `Agent Height Cells` — the generator warns otherwise. |
+| `Wall Thickness` | `1` | The walls between corridor cells. |
+| `Floor Thickness` | `1` | The slabs between rows. |
+| `Ladder Type` | empty | The library type stood in every hole: one ladder from the floor to the floor above, with its platform and `Climb Cells` — the same pieces the `Ladder` tool makes. Empty — no ladders: the holes can be fallen through and never climbed. |
+| `Hole Width` | `2` | Width of the hole in a slab. Two at least: a one-cell hole catches the shoulders. |
+
+`Path First` only. Lengths are in corridor cells of the lattice, not grid cells.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Main Path Winding` | `0.5` | `0` — the main path goes the short way; `1` — it wanders as far as it can before the exit. |
+| `Branches` | `6` | Branches off the main path, on top of any planned by hand. |
+| `Branch Depth Min`, `Branch Depth Max` | `2`, `6` | How long each branch is. |
+| `Sub Branch Chance` | `0.15` | Chance each cell of a branch starts a branch of its own, up to `Max Nesting` levels. |
+| `Max Nesting` | `2` | `1` — branches only off the main path; `2` — off those too; and so on. |
+| `Fill Leftover` | off | Join every unused corridor cell on as short spurs. Off — they stay solid, and the maze has exactly the branches asked for. |
+| `Start Marker Type` | empty | A library type (an `Entry` point) stood at the start of the main path. |
+| `Exit Marker Type` | empty | A library type (a `Gate`) stood at its end. |
+| `Planned Main Path`, `Planned Branches` | empty | Drawn with the `Path` tool, in grid cells; cleared by `Clear Path Plan`. |
+
+---
+
+## 16. Reachability, paths, doors and keys
+
+### Reachability
+
+`Check Reachability` starts where the player arrives — the `Entry` points; with none, the lowest place to stand — and spreads everywhere he can be, `Agent Width Cm` wide and the generator's `Agent Height Cells` tall.
+
+- Without `Require Ladders`: any space he fits in, in any direction. What it finds is the pieces nothing could lead into.
+- With it: walking, falling, stepping up `Step Up Cm`, jumping `Jump Height Cm`, and climbing only where a `Climb` object stands — a ladder counts over the whole of its `Climb Cells`.
+- Doors and keys are played out: a door seals its passage floor to ceiling until a key with its `Lock Id` can be reached — keys behind other doors included.
+
+The result is drawn over the maze: rooms nobody can reach hatched red, rooms reached in part orange, rooms behind a door marked apart; doors and keys something is wrong with framed red. Before the maze is sliced into rooms, the bounds of the unreached pieces are drawn instead. Any change to the grid drops the overlay.
+
+`Fix Reachability` joins every unreachable piece to the rest: a tunnel along the floor and, where the way leads up, a shaft `Fix Shaft Width Cells` wide, with a ladder of `Fix Ladder Type` when `Require Ladders` is on. Every door counts as open: a piece behind a door is a lock problem, not a missing passage, and carving round the door would quietly undo the design.
+
+### Paths
+
+`Analyze Paths` reads the maze as the player walks it: from the start (an `Entry` point, else the lowest place) to the exit (a `Gate` point, else the farthest place). `Path Status` gives:
+
+| Number | Meaning |
+|---|---|
+| main path | Its length in cells. |
+| branches, dead ends | Off the main path and in all; dead ends per nesting level. |
+| junctions, loops | Where the main path forks; ways round. |
+| branch depth | Average and greatest. |
+| nesting | Levels of branch-off-a-branch. |
+| confusion | 0–100: how often the way forks, how deep and nested the branches are, how many loops. |
+
+Drawn over the maze: the main path yellow, branches by level, dead ends red, junctions, start and exit. `Find Seed` aims at the same numbers.
+
+### Doors and keys
+
+Two library types — `Lock Role = Door` and `Lock Role = Key`; the placement's `Lock Id` pairs them, and one red key opens every red door. Place them with the brush (`Paint Lock Id`) or with `Generate Locks`, which:
+
+- puts each door where it closes off a piece of the maze, no smaller than `Min Locked Cells` and no larger than `Max Locked Share`;
+- puts its key where it can be had without that door — off the main path when it can — `Min`…`Max Rooms Between Key And Door` rooms away, so a door and its key are never loaded around the player together;
+- keeps to `Max Lock Nesting` and `Max Keys Held`; doors and keys placed by hand stay and are counted.
+
+`Check Reachability` reports keys that cannot be had, doors that never open, and keys too close to their door.
+
+### Gameplay components
+
+What the game needs for doors, keys and used objects. Each reads its placement off the `Maze Object Id` component the export puts on the spawned actor, so one blueprint serves every colour.
+
+| Class | Goes on | What it does |
+|---|---|---|
+| `Maze Keyring` | the player | Holds the keys: `Add Key`, `Has Key`, `Remove Key`; event `On Key Added`. |
+| `Maze Key` | the key actor | `Lock Id` (empty — from the placement), `Pick Up On Touch` (on; off — call `Try Pick Up` yourself), `Destroy On Pick Up` (on); event `On Picked Up`. |
+| `Maze Lock` | the door actor | `Lock Id` (empty — from the placement), `Unlock On Touch` (on; off — call `Try Unlock`), `Consume Key` (off — one key opens every door of its colour); events `On Unlocked`, `On Refused`. |
+| `Maze Progress Subsystem` | the world | Remembers used placements by id: `Mark Used`, `Is Used`; `Used Placements` for a save game. A key taken or a door opened stays so when its room streams back in. |
+
+---
+
+## 17. Ladders
+
+### What a ladder is
+
+A ladder is a placement of a `Climb` type standing over a free column of cells, from one **level** to a higher one. A level is the floor under the column, or an **exit** above it — somewhere to step off right beside the ladder:
+
+- going outwards along the row over open air, within about 2 m, the first cell with mass under it;
+- at least 120 cm of that mass, with air under it and 150 cm of headroom above — a floor or a slab, not an erosion bump and not a step in the floor below;
+- while the ladder's column there is in a gap with mass on both sides within 4 m — a hole or a shaft, not open air beside a pillar.
+
+The thresholds are in centimetres, so they mean the same on a 10 cm grid and a 100 cm one.
+
+A ladder put down by the tools is **one piece the whole length**: its height is stored on the placement as `Climb Cells`, and the platform of its type (`Top Piece Type`) stands on its top level. Ladders stack: the next one stands on the platform of the one below.
+
+| Piece | Anchor | Pivot |
+|---|---|---|
+| a ladder on the floor | `Floor` | on the floor |
+| a ladder on another ladder's platform | `Free` | on that level |
+| the platform | `Free` | on the level the ladder reaches |
+
+At export the height goes into the type's `Climb Height Property` (`Climb Cells` × cell height, over `Climb Unit Cm`, plus `Climb Extra Units`) and the construction script runs again; the log says `climbs N cm — NumberOfRungs = M`. The anchor of such a ladder is not checked again: it was fitted to its shaft. A ladder put down with the plain `Objects` brush has no `Climb Cells` and is measured at export from the floor under it to the first exit above.
+
+### Putting them down
+
+| How | What it does |
+|---|---|
+| the `Ladder` tool | Two clicks: the bottom, then the top — see the panel, [`Brush`](#brush). For designer mazes, where where a ladder goes is a decision. |
+| **Place All Ladders** | A ladder in every hole that has none yet, from the floor to the first exit above, in the column nearest the middle of the hole. For generated mazes where every hole is meant to be climbed. Placed as part of the maze: the next generation replaces them. |
+| the Classic generator | A ladder in every hole it cuts (`Ladder Type`) — the same pieces the tool makes. |
+| **Fix Reachability** | A ladder in every shaft it cuts that has to be climbed (`Require Ladders`). |
+
+The type: the `Climb` type picked in the palette, else `Fix Ladder Type`, else the Classic generator's `Ladder Type`. With `Random Variant` on the type, ladders mix with the other `Climb` types; a platform always belongs to the ladder it stands on.
+
+### On the map
+
+Ladders with `Climb Cells` are drawn the whole length in their type's `Editor Color`: a frame from the bottom level to the top with a rung every 25 cm. Platforms are a frame with a cross, like other objects. While the `Ladder` tool is between its clicks, the ladder to be is drawn in the style's `Brush Paint` colour and its platform row in `Brush Blocked`.
+
+### The ladder map
+
+In a designer maze every ladder is put down by hand, and a stray `Clear All Ladders` costs an afternoon. **Save Ladder Map** copies every ladder and platform into the spawn asset's `Ladder Map`; **Load Ladder Map** replaces the ladders now placed with it, keeping their ids so the save system still knows them. The map is written only by the button, so a bad state is never saved over a good one. Save the spawn asset afterwards.
+
+### Out of the player's way
+
+Objects stand in the middle of their band — in `Play`, on the player's plane — so a ladder stands right in his path. Give the ladder type and its platform type the same `Offset Y`: negative is towards the background (`-60`…`-80` with a 2-cell play band of 50 cm). The ladder's trigger boxes move with it: check they still reach the player's plane, or that climbing changes only X and Z of the character. The brush frames stay on the band's cell; `Offset` is not drawn.

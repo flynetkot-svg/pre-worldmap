@@ -1,7 +1,7 @@
 {
 	"FileVersion": 3,
-	"Version": 1,
-	"VersionName": "0.3.0",
+	"Version": 5,
+	"VersionName": "0.5.0",
 	"FriendlyName": "MazeForge",
 	"Description": "2.5D maze prototyping for Saboteur 2 remake: paint or generate a voxel maze, slice it into rooms, bake merged meshes into streaming sublevels and stream them at runtime.",
 	"Category": "Level Design",

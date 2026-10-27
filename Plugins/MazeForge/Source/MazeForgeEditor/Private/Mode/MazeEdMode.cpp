@@ -832,17 +832,22 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 		auto Cell = [SliceY](int32 X, int32 Z) { return FIntVector(X, SliceY, Z); };
 
 		FMazeShaft Column;
+		FIntPoint Base;
+		bool bOnFloor = true;
 		if (!bLadderStarted)
 		{
-			if (MazeLadders::FindColumn(Grid, SliceY, FIntPoint(HoveredCell.X, HoveredCell.Z), Column))
+			if (PickLadderBottom(Grid, FIntPoint(HoveredCell.X, HoveredCell.Z), Base, bOnFloor))
 			{
-				const int32 X = Column.Bottom.X;
-				const int32 Level = MazeLadders::LevelAtOrBelow(Column, HoveredCell.Z);
-				for (const int32 Exit : Column.Exits)
+				if (MazeLadders::FindColumn(Grid, SliceY, Base, Column))
 				{
-					FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Cell(X, Exit), Cell(X, Exit), Style.BrushBlocked);
+					for (const int32 Exit : Column.Exits)
+					{
+						FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Cell(Base.X, Exit), Cell(Base.X, Exit),
+							Style.BrushBlocked);
+					}
 				}
-				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Cell(X, Level), Cell(X, Level), Style.BrushPaint);
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Cell(Base.X, Base.Y), Cell(Base.X, Base.Y),
+					Style.BrushPaint);
 			}
 			else
 			{
@@ -853,13 +858,17 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 		else
 		{
 			const int32 Top = MazeLadders::FindColumn(Grid, SliceY, LadderStart, Column)
-				? MazeLadders::SnapTop(Column, LadderStart.Y, HoveredCell.Z) : INDEX_NONE;
+				? MazeLadders::SnapTop(Column, LadderStart.Y, HoveredCell.Z, LadderTopTolerance(Grid)) : INDEX_NONE;
 			if (Top != INDEX_NONE)
 			{
-				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Cell(LadderStart.X, LadderStart.Y),
-					Cell(LadderStart.X, Top - 1), Style.BrushPaint);
+				const UMazeObjectLibrary* Library = Settings->GetObjectLibrary();
+				const FMazeObjectType* Type = Library ? Library->FindType(Settings->ResolveLadderType()) : nullptr;
+				const int32 Width = Type ? FMath::Max(1, Type->FootprintCells.X) : 1;
+
+				FMazeGridRenderer::DrawLadder(PDI, Grid, LadderStart.X, Width, LadderStart.Y, Top, SliceY,
+					Style.BrushPaint);
 				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, Cell(LadderStart.X, Top),
-					Cell(LadderStart.X, Top), Style.BrushBlocked);
+					Cell(LadderStart.X + Width - 1, Top), Style.BrushBlocked);
 			}
 			else
 			{
@@ -1742,6 +1751,48 @@ bool UMazeEdMode::ApplyObjectClick(bool bErase)
 
 // ---------------------------------------------------------------- ladders
 
+bool UMazeEdMode::PickLadderBottom(const FMazeGrid& Grid, const FIntPoint& Cursor, FIntPoint& OutBase,
+                                  bool& bOutOnFloor) const
+{
+	// Snapping is generous: a level within about a metre of the cursor is the one meant.
+	const int32 Tolerance = LadderTopTolerance(Grid);
+
+	// The top of a ladder already standing here comes first, and so does its column: the next
+	// ladder goes exactly on its platform, wherever on that platform the click landed.
+	const UMazeSpawnAsset* Spawns = Settings ? Settings->GetSpawnAsset() : nullptr;
+	if (Spawns && MazeLadders::FindStackBase(Spawns->Placements, Settings->GetObjectLibrary(), Cursor,
+		Tolerance, OutBase))
+	{
+		bOutOnFloor = false;
+		return true;
+	}
+
+	FMazeShaft Column;
+	if (!MazeLadders::FindColumn(Grid, Grid.Depth.PlaneCellY(), Cursor, Column))
+	{
+		return false;
+	}
+
+	// The floor or an exit: the nearest within the tolerance, else the highest below.
+	int32 Level = MazeLadders::LevelAtOrBelow(Column, Cursor.Y);
+	for (const int32 Exit : Column.Exits)
+	{
+		if (FMath::Abs(Exit - Cursor.Y) <= Tolerance && FMath::Abs(Exit - Cursor.Y) < FMath::Abs(Level - Cursor.Y))
+		{
+			Level = Exit;
+		}
+	}
+
+	OutBase = FIntPoint(Column.Bottom.X, Level);
+	bOutOnFloor = Level == Column.Bottom.Y;
+	return true;
+}
+
+int32 UMazeEdMode::LadderTopTolerance(const FMazeGrid& Grid)
+{
+	return FMath::Max(2, FMath::CeilToInt(100.0 / FMath::Max(1.0, Grid.CellSize.Z)));
+}
+
 FString UMazeEdMode::LadderHoverStatus(const UMazeGridAsset& Asset) const
 {
 	const UMazeObjectLibrary* Library = Settings->GetObjectLibrary();
@@ -1757,19 +1808,19 @@ FString UMazeEdMode::LadderHoverStatus(const UMazeGridAsset& Asset) const
 
 	if (!bLadderStarted)
 	{
-		if (!MazeLadders::FindColumn(Grid, SliceY, FIntPoint(HoveredCell.X, HoveredCell.Z), Column))
+		FIntPoint Base;
+		bool bOnFloor = true;
+		if (!PickLadderBottom(Grid, FIntPoint(HoveredCell.X, HoveredCell.Z), Base, bOnFloor))
 		{
 			return FString::Printf(TEXT("  |  LADDER '%s': the cursor is in mass"), *LadderType.ToString());
 		}
-		const int32 Level = MazeLadders::LevelAtOrBelow(Column, HoveredCell.Z);
 		return FString::Printf(
-			TEXT("  |  LADDER '%s': click — BOTTOM at Z %d (%s), %d exit(s) above  |  Shift — remove the ladders in this column"),
-			*LadderType.ToString(), Level, Level == Column.Bottom.Y ? TEXT("floor") : TEXT("exit, on a ladder below"),
-			Column.Exits.Num());
+			TEXT("  |  LADDER '%s': click — BOTTOM at X %d Z %d (%s)  |  Shift — remove the ladders in this column"),
+			*LadderType.ToString(), Base.X, Base.Y, bOnFloor ? TEXT("floor") : TEXT("on the ladder below"));
 	}
 
 	const int32 Top = MazeLadders::FindColumn(Grid, SliceY, LadderStart, Column)
-		? MazeLadders::SnapTop(Column, LadderStart.Y, HoveredCell.Z) : INDEX_NONE;
+		? MazeLadders::SnapTop(Column, LadderStart.Y, HoveredCell.Z, LadderTopTolerance(Grid)) : INDEX_NONE;
 	if (Top == INDEX_NONE)
 	{
 		return FString::Printf(TEXT("  |  LADDER: bottom Z %d — move up for the TOP  |  Shift — cancel"), LadderStart.Y);
@@ -1851,23 +1902,20 @@ bool UMazeEdMode::ApplyLadderClick(bool bShift)
 	// below, which is how ladders stack.
 	if (!bLadderStarted)
 	{
-		if (!MazeLadders::FindColumn(Grid, SliceY, CellXZ, Column))
+		if (!PickLadderBottom(Grid, CellXZ, LadderStart, bLadderStartOnFloor))
 		{
 			UE_LOG(LogMazeForge, Warning, TEXT("Ladder: X %d Z %d is mass — the bottom goes in empty space."),
 				CellXZ.X, CellXZ.Y);
 			return false;
 		}
 
-		const int32 Level = MazeLadders::LevelAtOrBelow(Column, CellXZ.Y);
-		LadderStart = FIntPoint(Column.Bottom.X, Level);
-		bLadderStartOnFloor = Level == Column.Bottom.Y;
 		bLadderStarted = true;
 		return true;
 	}
 
 	// Second click: the top, snapped down to the nearest exit above the bottom.
 	const int32 Top = MazeLadders::FindColumn(Grid, SliceY, LadderStart, Column)
-		? MazeLadders::SnapTop(Column, LadderStart.Y, CellXZ.Y) : INDEX_NONE;
+		? MazeLadders::SnapTop(Column, LadderStart.Y, CellXZ.Y, LadderTopTolerance(Grid)) : INDEX_NONE;
 	if (Top == INDEX_NONE)
 	{
 		UE_LOG(LogMazeForge, Warning,

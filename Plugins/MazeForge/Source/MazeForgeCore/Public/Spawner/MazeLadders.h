@@ -59,11 +59,20 @@ namespace MazeLadders
 	MAZEFORGECORE_API int32 LevelAtOrBelow(const FMazeShaft& Shaft, int32 Z);
 
 	/**
-	 *  Where a ladder ends when its top is picked at row Z: the highest exit above BottomZ and at
-	 *  or below Z; without one, Z itself, kept under the ceiling. INDEX_NONE if that is not
-	 *  above BottomZ.
+	 *  Where a ladder ends when its top is picked at row Z: the exit above BottomZ nearest to Z
+	 *  if one is within Tolerance rows; else the highest exit at or below Z; else Z itself, kept
+	 *  under the ceiling. INDEX_NONE if that is not above BottomZ.
 	 */
-	MAZEFORGECORE_API int32 SnapTop(const FMazeShaft& Shaft, int32 BottomZ, int32 Z);
+	MAZEFORGECORE_API int32 SnapTop(const FMazeShaft& Shaft, int32 BottomZ, int32 Z, int32 Tolerance = 0);
+
+	/**
+	 *  The top of a ladder already placed near Cell, to stack the next one on: a ladder with
+	 *  Climb Cells whose column takes in Cell.X, or a platform under the cursor, whose level is
+	 *  within Tolerance rows of Cell.Y — the nearest. OutBase is that ladder's column and level.
+	 */
+	MAZEFORGECORE_API bool FindStackBase(const TArray<FMazePlacement>& Placements,
+	                                     const UMazeObjectLibrary* Library, const FIntPoint& Cell,
+	                                     int32 Tolerance, FIntPoint& OutBase);
 
 	/**
 	 *  One shaft per hole in the maze: every hole with a floor under it, the ladder in the column

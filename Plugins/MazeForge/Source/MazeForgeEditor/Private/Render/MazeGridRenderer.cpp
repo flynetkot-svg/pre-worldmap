@@ -258,6 +258,32 @@ void FMazeGridRenderer::DrawDepthBands(FPrimitiveDrawInterface* PDI, const FMaze
 	DrawPlane(Grid.DepthCells(), Style.BandDecor);
 }
 
+void FMazeGridRenderer::DrawLadder(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid, int32 X, int32 Width,
+                                   int32 BottomZ, int32 TopZ, int32 SliceY, const FMazeLineStyle& Line)
+{
+	if (TopZ <= BottomZ)
+	{
+		return;
+	}
+
+	const FBox Low = Grid.GetCellBounds(FIntVector(X, SliceY, BottomZ));
+	const FBox High = Grid.GetCellBounds(FIntVector(X + FMath::Max(1, Width) - 1, SliceY, TopZ));
+	const double X0 = Low.Min.X;
+	const double X1 = High.Max.X;
+	const double Z0 = Low.Min.Z;   // the level it stands on
+	const double Z1 = High.Min.Z;  // the level it reaches
+	const double Y = Low.GetCenter().Y;
+
+	DrawRectXZ(PDI, X0, X1, Z0, Z1, Y, Line);
+
+	// Rungs: as a ladder reads at a glance, and a few hundred lines at most.
+	const double Spacing = FMath::Max(25.0, (Z1 - Z0) / 400.0);
+	for (double Z = Z0 + Spacing; Z < Z1 - 1.0; Z += Spacing)
+	{
+		PDI->DrawLine(FVector(X0, Y, Z), FVector(X1, Y, Z), Line.Color, SDPG_Foreground, Line.Thickness * 0.6f);
+	}
+}
+
 void FMazeGridRenderer::DrawPlacements(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid,
                                       const UMazeObjectLibrary* Library,
                                       const TArray<FMazePlacement>& Placements,
@@ -282,6 +308,15 @@ void FMazeGridRenderer::DrawPlacements(FPrimitiveDrawInterface* PDI, const FMaze
 			Style.ObjectMarker.Thickness);
 
 		const int32 SliceY = MazePlacement::BandSliceY(Grid, Placement.Band);
+
+		// A ladder sized to its shaft is drawn as the ladder, the whole length, not as its
+		// footprint: which shafts already have one is the thing the designer is looking for.
+		if (Type && Type->Category == EMazeObjectCategory::Climb && Placement.ClimbCells > 0)
+		{
+			DrawLadder(PDI, Grid, Placement.CellXZ.X, Size.X, Placement.CellXZ.Y,
+				Placement.CellXZ.Y + Placement.ClimbCells, SliceY, Line);
+			continue;
+		}
 
 		const FBox Box = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X, SliceY, Placement.CellXZ.Y))
 			+ Grid.GetCellBounds(FIntVector(Placement.CellXZ.X + Size.X - 1, SliceY,

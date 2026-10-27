@@ -1,7 +1,7 @@
 ﻿# MazeForge — Quick Start
 
 **What you get:** a world of two mazes with a working transition between them.
-**Version:** MazeForge 0.4.0 · Unreal Engine 5.8.2
+**Version:** MazeForge 0.5.0 · Unreal Engine 5.8.2
 **Field-by-field reference:** `MazeForge_Reference_EN.md`
 **По-русски:** `MazeForge_QuickStart_RU.md`
 
@@ -28,6 +28,10 @@ Anything not mentioned here, leave alone. The defaults are chosen for a first ma
 13. [Checking the transition](#13-checking-the-transition)
 14. [When it does not work](#14-when-it-does-not-work)
 15. [Cheat sheet](#15-cheat-sheet)
+16. [Generating a maze](#16-generating-a-maze)
+17. [Reachability, doors and keys](#17-reachability-doors-and-keys)
+18. [Ladders](#18-ladders)
+19. [Moving a maze to another project](#19-moving-a-maze-to-another-project)
 
 ---
 
@@ -988,7 +992,7 @@ At least one of them has no `Maze Name`. Give both a name and rebuild both. The 
 
 **Order of work on a level:** asset (`Room Size` right away) → plane → room colouring (`Tool = Rooms`) → `Apply` → objects → `Apply`.
 
-**Keys in the mode:** `Q` lifts the layer dimming while held, `PgUp` / `PgDn` change the active depth slice, `Ctrl` + drag fills a rectangle, `Ctrl` + LMB erases. With `Tool = Rooms`: drag merges rooms, `Shift` + drag splits them.
+**Keys in the mode:** `Q` lifts the layer dimming while held, `PgUp` / `PgDn` change the active depth slice, `Ctrl` + drag fills a rectangle, `Ctrl` + LMB erases. With `Tool = Rooms`: drag merges rooms, `Shift` + drag splits them. With `Tool = Path`: click — a main path point, `Shift` + click — a branch point, `Ctrl` + `Shift` + click — a new branch, `Ctrl` + click — remove. With `Tool = Ladder`: click — the bottom, click — the top, `Shift` + click — cancel, or remove the ladders in a column.
 
 **Keys on the world map:** `F` frames everything, `Delete` removes the selected link, `Escape` cancels a pending link.
 
@@ -999,3 +1003,86 @@ At least one of them has no `Maze Name`. Give both a name and rebuild both. The 
 1. Set `Maze Name` before the first build, as soon as there are two mazes.
 2. Place transition points only with `Paint Band = Play`.
 3. The manifest on the character is a manual link. Rebuild a maze under a different name and you have to carry it over yourself.
+
+---
+
+## 16. Generating a maze
+
+Drawing every corridor by hand is one way; the other is a generator. It fills the same grid, so everything after it — rooms, objects, `Apply Changes` — is the same.
+
+1. In the mode panel, **Maze Features → Generator**: pick `Classic`.
+2. On a 50 cm grid start with `Corridor Width 6`, `Corridor Height 6` and `Agent Height Cells 4` — the stock character is 176 cm.
+3. **Generate Maze**. With `Regenerate On Change` on, every committed change of a setting generates again: move a slider, let go, look.
+4. `Style`: `Long Corridors` for long winding corridors, `Branchy` for many short dead ends, `Path First` for a main path with a set number of branches.
+5. Shape it: `Dead End Chance` and `Dead End Shapes` for pointed, slanted and round ends; `Erosion Amount` for rough walls and ceilings.
+6. Not happy with the layout? **Reroll** for a new seed — or set the targets (`Target Dead Ends`, `Target Min Confusion`…) and press **Find Seed**.
+
+**Check:** the maze fills the grid, the corridors are taller than the character, and **Analyze Paths** draws a yellow main path from the start to the exit.
+
+**Planning the path by hand** (`Style = Path First`): `Tool = Path`. Click the points of the main path; `Ctrl` + `Shift` + click starts a branch, `Shift` + click adds points to it, `Ctrl` + click removes the nearest one. The generator runs the path through your points. **Clear Path Plan** forgets them.
+
+---
+
+## 17. Reachability, doors and keys
+
+1. **Check Reachability.** Rooms nobody can reach are hatched red, rooms reached in part orange.
+2. **Fix Reachability** joins them with tunnels and shafts. With `Require Ladders` on it also stands ladders in the shafts that have to be climbed (`Fix Ladder Type`).
+3. Doors and keys are two library types: `Lock Role = Door` with a `Maze Lock` component on its blueprint, `Lock Role = Key` with `Maze Key`. Put a `Maze Keyring` component on the character.
+4. **Generate Locks** places `Lock Count` doors, each with its key in another part of the maze. Or place them with the brush, choosing the colour in `Paint Lock Id`.
+5. **Check Reachability** again: it plays the doors out and frames in red a key that cannot be had or a door that never opens.
+
+**Check:** in PIE the key is picked up on touch and the door of its colour opens. Leave the room and come back — the door is still open.
+
+---
+
+## 18. Ladders
+
+### 18.1 The ladder type
+
+In the library, a type for the ladder and one for its platform:
+
+| Field | Ladder | Platform |
+|---|---|---|
+| `Category` | `Climb` | `Climb` |
+| `Actor Class` | your ladder blueprint | your platform blueprint |
+| `Allowed Anchors` | `Floor` | `Free` |
+| `Top Piece Type` | the platform's `Type Id` | empty |
+| `Climb Height Property` | e.g. `NumberOfRungs` | empty |
+| `Climb Unit Cm` | the height of one section | `0` |
+
+If the blueprint builds itself out of sections in its construction script — `NumberOfRungs` sections of `Ladder Section Mesh Hight` each — then `Climb Unit Cm` is the height of a section, not the rung spacing: a 50 cm section with four rungs is `50`. If the blueprint also adds a top or bottom piece of its own, either leave `Top Piece Type` empty or turn that piece off, and take its height off with `Climb Extra Units`.
+
+### 18.2 Standing them
+
+`Tool = Ladder`, or just click the ladder's swatch in the palette.
+
+- **First click — the bottom:** on the floor of the shaft, or on the platform of the ladder below.
+- **Second click — the top:** at the floor of the exit the ladder leads to.
+
+One ladder the whole way, its platform on top. A shaft with four exits is four pairs of clicks: each ladder stands on the platform of the one before. The status line says where the bottom and the top will snap and how many rungs the ladder will get; `Shift` + click cancels a started ladder, or removes the ladders in a column.
+
+For a generated maze where every hole is meant to be climbed, **Place All Ladders** does it in one press; the Classic generator does it itself if its `Ladder Type` is set.
+
+### 18.3 Save them
+
+**Save Ladder Map**, then save the spawn asset. After `Clear All Ladders`, a regeneration or a slip, **Load Ladder Map** brings every ladder back.
+
+### 18.4 Out of the player's way
+
+A ladder stands in the player's plane and blocks his path. Give the ladder type and the platform type `Offset Y = -60…-80` (towards the background), and make sure the ladder's trigger boxes still reach the player's plane.
+
+**Check:** after `Apply Changes` each ladder stands on its floor and reaches its platform, and the log says `climbs N cm — NumberOfRungs = M` for each one.
+
+---
+
+## 19. Moving a maze to another project
+
+Everything you made is in assets: the maze asset (cells, rooms and merges, the generator and the path plan), its spawn asset (objects, ladders, the ladder map), the object library and the build settings.
+
+1. Copy `Plugins/MazeForge` into the new project — the same engine version — and build it.
+2. In the old project: save everything; press **Save Ladder Map** for safety.
+3. Content Browser → right-click the maze asset → **Asset Actions → Migrate…** → the new project's `Content` folder. In the list, check that the spawn asset, the library, the build settings and the blueprints are ticked: the first three are soft references.
+4. The generated room levels and meshes need not go: **Apply Changes** builds them again. Take them along only if you placed decor inside the room levels (`Bind Decor To Rooms`).
+5. In the new project: the mode → `Target Asset` → **Apply Changes**.
+
+**Check:** the rooms, objects and ladders stand where they stood, with the same ids.

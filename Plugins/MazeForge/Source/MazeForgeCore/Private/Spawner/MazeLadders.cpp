@@ -159,9 +159,25 @@ namespace MazeLadders
 		return Level;
 	}
 
-	int32 SnapTop(const FMazeShaft& Shaft, int32 BottomZ, int32 Z)
+	int32 SnapTop(const FMazeShaft& Shaft, int32 BottomZ, int32 Z, int32 Tolerance)
 	{
+		// The nearest exit first, above or below the cursor: aiming a pixel under a level must
+		// still land on it, or the next ladder has nothing to stand on.
 		int32 Top = INDEX_NONE;
+		int32 Best = Tolerance + 1;
+		for (const int32 Exit : Shaft.Exits)
+		{
+			if (Exit > BottomZ && FMath::Abs(Exit - Z) < Best)
+			{
+				Best = FMath::Abs(Exit - Z);
+				Top = Exit;
+			}
+		}
+		if (Top != INDEX_NONE)
+		{
+			return Top;
+		}
+
 		for (const int32 Exit : Shaft.Exits)
 		{
 			if (Exit > BottomZ && Exit <= Z)
@@ -175,6 +191,43 @@ namespace MazeLadders
 			Top = FMath::Min(Z, Shaft.CeilingZ);
 		}
 		return Top > BottomZ ? Top : INDEX_NONE;
+	}
+
+	bool FindStackBase(const TArray<FMazePlacement>& Placements, const UMazeObjectLibrary* Library,
+	                   const FIntPoint& Cell, int32 Tolerance, FIntPoint& OutBase)
+	{
+		int32 Best = Tolerance + 1;
+		for (const FMazePlacement& Piece : Placements)
+		{
+			const FMazeObjectType* Type = Library ? Library->FindType(Piece.TypeId) : nullptr;
+			if (!Type)
+			{
+				continue;
+			}
+
+			const int32 Width = FMath::Max(1, Type->FootprintCells.X);
+			if (Cell.X < Piece.CellXZ.X || Cell.X >= Piece.CellXZ.X + Width)
+			{
+				continue; // not this column
+			}
+
+			int32 Level = INDEX_NONE;
+			if (Library->IsTopPiece(Piece.TypeId))
+			{
+				Level = Piece.CellXZ.Y;                     // a platform: its row is the level
+			}
+			else if (Type->Category == EMazeObjectCategory::Climb && Piece.ClimbCells > 0)
+			{
+				Level = Piece.CellXZ.Y + Piece.ClimbCells;  // a sized ladder: where it ends
+			}
+
+			if (Level != INDEX_NONE && FMath::Abs(Level - Cell.Y) < Best)
+			{
+				Best = FMath::Abs(Level - Cell.Y);
+				OutBase = FIntPoint(Piece.CellXZ.X, Level);
+			}
+		}
+		return Best <= Tolerance;
 	}
 
 	void FindAllShafts(const FMazeGrid& Grid, int32 SliceY, TArray<FMazeShaft>& Out)

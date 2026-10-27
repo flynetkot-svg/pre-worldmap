@@ -71,6 +71,13 @@ public:
 	 *  tens of these, not hundreds of thousands, and a frame shows the footprint — the thing
 	 *  that decides whether a placement is legal — where a solid block would hide it.
 	 */
+	/**
+	 *  A ladder as it will stand: a frame from the level of row BottomZ to the level of row TopZ,
+	 *  Width cells wide from column X, with a rung every 25 cm.
+	 */
+	static void DrawLadder(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid, int32 X, int32 Width,
+	                       int32 BottomZ, int32 TopZ, int32 SliceY, const FMazeLineStyle& Line);
+
 	static void DrawPlacements(FPrimitiveDrawInterface* PDI, const FMazeGrid& Grid,
 	                           const UMazeObjectLibrary* Library,
 	                           const TArray<FMazePlacement>& Placements,
