@@ -43,7 +43,13 @@ enum class EMazeEditTool : uint8
 	 *  One ladder the whole length, a platform on top. Shift+click — cancel the first click, or
 	 *  remove the ladders in that column. Which ladder: a Climb swatch in the palette.
 	 */
-	Ladder  = 4
+	Ladder  = 4,
+	/**
+	 *  Paint where the rock is to be chipped: the faces of mass in the painted cells, or facing
+	 *  them, come out hewn at the next Apply Changes. Visual only. Shift — erase. Depth Apply
+	 *  says which bands; for the face the camera sees, the Play band is enough.
+	 */
+	Rough   = 5
 };
 
 /** How a brush stroke is spread through the depth axis Y. */
@@ -360,7 +366,7 @@ public:
 	bool bAutoFloorSurfaces = true;
 
 	UPROPERTY(EditAnywhere, config, Category = "Brush", meta = (ClampMin = "1", ClampMax = "16",
-		EditCondition = "Tool == EMazeEditTool::Cells", EditConditionHides))
+		EditCondition = "Tool == EMazeEditTool::Cells || Tool == EMazeEditTool::Rough", EditConditionHides))
 	int32 BrushSize = 1;
 
 	/**
@@ -568,6 +574,11 @@ public:
 	UFUNCTION(CallInEditor, Category = "Brush",
 		meta = (DisplayName = "Mark Floor Surfaces", DisplayPriority = "2"))
 	void MarkFloorSurfaces();
+
+	/** Removes the whole Rough mask of the maze: every face back to straight at the next Apply. One undo step. */
+	UFUNCTION(CallInEditor, Category = "Brush",
+		meta = (DisplayName = "Clear Rough Mask", DisplayPriority = "7"))
+	void ClearRoughMask();
 
 	/**
 	 *  Removes every placement from the target's spawn asset.

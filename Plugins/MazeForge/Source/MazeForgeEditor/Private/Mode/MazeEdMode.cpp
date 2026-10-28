@@ -214,7 +214,48 @@ void UMazeEdMode::OnAssetGridChanged()
 		Settings->ClearReachability();
 	}
 
+	bRoughOverlayDirty = true;
 	RebuildPreview();
+}
+
+void UMazeEdMode::RebuildRoughOverlay(const FMazeGrid& Grid)
+{
+	bRoughOverlayDirty = false;
+	RoughOverlay.Reset();
+
+	// The columns painted in any slice, as runs along X: one hatched strip per run instead of a
+	// box per cell, and the same picture whichever slice is active.
+	TMap<int32, TArray<int32>> Rows;
+	TSet<FIntPoint> Seen;
+	for (const FIntVector& Cell : Grid.RoughCells)
+	{
+		const FIntPoint XZ(Cell.X, Cell.Z);
+		if (!Seen.Contains(XZ))
+		{
+			Seen.Add(XZ);
+			Rows.FindOrAdd(Cell.Z).Add(Cell.X);
+		}
+	}
+
+	for (TPair<int32, TArray<int32>>& Row : Rows)
+	{
+		Row.Value.Sort();
+		int32 From = Row.Value[0];
+		int32 To = From;
+		for (int32 Index = 1; Index <= Row.Value.Num(); ++Index)
+		{
+			if (Index < Row.Value.Num() && Row.Value[Index] == To + 1)
+			{
+				To = Row.Value[Index];
+				continue;
+			}
+			RoughOverlay.Add(FIntVector(From, Row.Key, To));
+			if (Index < Row.Value.Num())
+			{
+				From = To = Row.Value[Index];
+			}
+		}
+	}
 }
 
 void UMazeEdMode::OnSettingsChanged()
@@ -750,6 +791,24 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 		}
 	}
 
+	// The Rough mask, hatched in violet, with the Rough brush in hand. The chipping itself is in
+	// the baked meshes, not in these preview cubes, so this is the only place it shows before Apply.
+	if (Settings->Tool == EMazeEditTool::Rough && Grid.RoughCells.Num() > 0)
+	{
+		if (bRoughOverlayDirty)
+		{
+			RebuildRoughOverlay(Grid);
+		}
+
+		const FMazeLineStyle RoughLine(FLinearColor(0.70f, 0.30f, 1.00f, 1.0f), 1.5f);
+		for (const FIntVector& Run : RoughOverlay)
+		{
+			FMazeGridRenderer::DrawCellHatch(PDI, Grid,
+				FIntVector(Run.X, Settings->ActiveDepthSlice, Run.Y),
+				FIntVector(Run.Z, Settings->ActiveDepthSlice, Run.Y), RoughLine, 1.0f);
+		}
+	}
+
 	if (!bHasHover)
 	{
 		return;
@@ -1063,6 +1122,12 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			else if (Settings->Tool == EMazeEditTool::Ladder)
 			{
 				Status += LadderHoverStatus(*Asset);
+			}
+			else if (Settings->Tool == EMazeEditTool::Rough)
+			{
+				Status += FString::Printf(
+					TEXT("  |  ROUGH: paint where the rock is chipped, Shift — erase, Ctrl+drag — rectangle  |  "
+					     "%d rough cell(s) — seen after Apply Changes"), Grid.RoughCells.Num());
 			}
 			else if (Settings->Tool == EMazeEditTool::Path)
 			{
@@ -1585,6 +1650,48 @@ int32 UMazeEdMode::ApplyBox(const FIntVector& A, const FIntVector& B, bool bEras
 	const int32 MaxX = FMath::Clamp(FMath::Max(A.X, B.X), 0, Grid.SizeXZ.X - 1);
 	const int32 MinZ = FMath::Clamp(FMath::Min(A.Z, B.Z), 0, Grid.SizeXZ.Y - 1);
 	const int32 MaxZ = FMath::Clamp(FMath::Max(A.Z, B.Z), 0, Grid.SizeXZ.Y - 1);
+
+	// The Rough brush writes a layer of its own, painted on air and mass alike: neither the back
+	// wall's slice nor the fill flags apply, Depth Apply alone says how deep.
+	if (Settings->Tool == EMazeEditTool::Rough)
+	{
+		int32 RoughMinY = 0;
+		int32 RoughMaxY = Grid.DepthCells();
+		if (Settings->DepthApply == EMazeDepthApply::ActiveSliceOnly)
+		{
+			RoughMinY = FMath::Clamp(Settings->ActiveDepthSlice, 0, Grid.DepthCells() - 1);
+			RoughMaxY = RoughMinY + 1;
+		}
+		else if (Settings->DepthApply == EMazeDepthApply::PlayBandOnly)
+		{
+			RoughMinY = Grid.Depth.PlayStartCell();
+			RoughMaxY = Grid.Depth.PlayEndCell();
+		}
+
+		int32 RoughChanged = 0;
+		for (int32 X = MinX; X <= MaxX; ++X)
+		{
+			for (int32 Z = MinZ; Z <= MaxZ; ++Z)
+			{
+				for (int32 Y = RoughMinY; Y < RoughMaxY; ++Y)
+				{
+					const FIntVector Cell(X, Y, Z);
+					if (bErase)
+					{
+						RoughChanged += Grid.RoughCells.Remove(Cell);
+					}
+					else if (!Grid.RoughCells.Contains(Cell))
+					{
+						Grid.RoughCells.Add(Cell);
+						++RoughChanged;
+					}
+				}
+			}
+		}
+
+		bRoughOverlayDirty |= RoughChanged > 0;
+		return RoughChanged;
+	}
 
 	// Fill flags describe the depth bands of the maze mass and say nothing about the back wall,
 	// which lives in a single slice of its own.
@@ -2277,7 +2384,7 @@ void UMazeEdMode::EndStroke()
 	// Inside the stroke's transaction, so one Ctrl+Z takes the floors back with the cells.
 	// Not for the back wall: it is no mass, and buries or lays bare nothing.
 	if (Asset && StrokeChangedCells > 0 && Settings && Settings->bAutoFloorSurfaces
-		&& Settings->PaintType != EMazeCellType::BackWall)
+		&& Settings->Tool == EMazeEditTool::Cells && Settings->PaintType != EMazeCellType::BackWall)
 	{
 		const int32 Thickness = Asset->Generator ? Asset->Generator->FloorSurfaceCells : 1;
 		Asset->MarkFloorSurfaces(Thickness, Settings->AgentWidthCm, &StrokeMin, &StrokeMax);

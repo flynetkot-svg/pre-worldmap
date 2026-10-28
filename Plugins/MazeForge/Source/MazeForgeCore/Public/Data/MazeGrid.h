@@ -46,6 +46,17 @@ struct MAZEFORGECORE_API FMazeGrid
 	TMap<FIntVector, FMazeCell> Cells;
 
 	/**
+	 *  Cells marked with the Rough brush. The visible faces of mass in them or next to them are
+	 *  chipped at bake — rock hewn by hand rather than cut by a ruler.
+	 *
+	 *  Visual only: collision, reachability and placement all keep to the cells. A layer of its
+	 *  own and not a flag on the cell, because it is painted on air as much as on mass, and
+	 *  because Reset — every generation — must leave it alone: it is the designer's work.
+	 */
+	UPROPERTY()
+	TSet<FIntVector> RoughCells;
+
+	/**
 	 *  Cells as they are stored on disk: one compressed block instead of a tagged entry per
 	 *  cell. Tagged, the millions of two-byte cells of a 707x376 map weighed 219 MB.
 	 *

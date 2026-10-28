@@ -270,6 +270,11 @@ private:
 	int32 StrokeChangedCells = 0;
 
 	/** The XZ cells the current stroke has touched, inclusive — for retyping floors round it. */
+	/** The Rough mask as the overlay draws it: runs (X from, Z, X to) of painted columns. */
+	TArray<FIntVector> RoughOverlay;
+	bool bRoughOverlayDirty = true;
+	void RebuildRoughOverlay(const FMazeGrid& Grid);
+
 	FIntPoint StrokeMin = FIntPoint::ZeroValue;
 	FIntPoint StrokeMax = FIntPoint::ZeroValue;
 	void GrowStroke(const FIntVector& Centre);

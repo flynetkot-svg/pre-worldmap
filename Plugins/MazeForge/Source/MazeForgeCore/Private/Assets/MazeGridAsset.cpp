@@ -139,6 +139,17 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room, FMazeRoomHashTr
 			(Settings->bMergeMaterials     ? 8 : 0) |
 			(Settings->bMergeCoplanarFaces ? 16 : 0)));
 
+		Hash = MixFloat(Hash, Settings->RoughAmplitudeCm);
+		Hash = MixFloat(Hash, Settings->RoughChipSizeCm);
+		Hash = MixFloat(Hash, Settings->RoughSubdivisionCm);
+		Hash = MixFloat(Hash, Settings->RoughOverhang);
+		Hash = MixFloat(Hash, Settings->RoughTilt);
+		Hash = Mix(Hash, static_cast<uint64>(static_cast<uint32>(Settings->RoughSeed)));
+		Hash = MixFloat(Hash, Settings->RoughSmoothRadiusCells);
+		Hash = MixFloat(Hash, Settings->RoughSmoothMaxCm);
+		Hash = MixFloat(Hash, Settings->RoughSmoothFill);
+		Hash = Mix(Hash, Settings->bRoughSmoothXZOnly ? 1 : 0);
+
 		// Sorted, because a TMap does not promise an iteration order and a hash that depends on
 		// one would flip between editor runs and rebake the whole maze for nothing.
 		TArray<EMazeCellType> Types;
@@ -178,6 +189,16 @@ int64 UMazeGridAsset::ComputeRoomHash(const FMazeRoomDesc& Room, FMazeRoomHashTr
 		{
 			for (int32 Y = 0; Y < DepthCells; ++Y)
 			{
+				// The rough mask is painted on air as much as on mass, so it is asked before the
+				// empty cells are skipped.
+				if (Grid.RoughCells.Num() > 0 && Grid.RoughCells.Contains(FIntVector(X, Y, Z)))
+				{
+					Hash = Mix(Hash, 0x52A0000000000000ULL
+						^ (static_cast<uint64>(static_cast<uint32>(X)) << 32)
+						^ (static_cast<uint64>(static_cast<uint32>(Z)) << 8)
+						^ static_cast<uint64>(static_cast<uint32>(Y)));
+				}
+
 				const FMazeCell* Cell = Grid.Cells.Find(FIntVector(X, Y, Z));
 				if (!Cell)
 				{

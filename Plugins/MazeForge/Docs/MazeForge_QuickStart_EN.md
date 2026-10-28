@@ -33,6 +33,7 @@ Anything not mentioned here, leave alone. The defaults are chosen for a first ma
 18. [Ladders](#18-ladders)
 19. [Moving a maze to another project](#19-moving-a-maze-to-another-project)
 20. [Floors](#20-floors)
+21. [Hewn rock: the Rough brush](#21-hewn-rock-the-rough-brush)
 
 ---
 
@@ -1116,3 +1117,18 @@ Only surfaces the player can get onto count — the air above them has to be rea
 4. **Apply Changes** — the rooms rebuild with the floor material.
 
 **Check:** the floors in the preview are the `Floor` colour, window sills and sealed pockets are not. If most floors stayed `Solid`, the reach started in a cut-off piece: put an `Entry` point where the player arrives and press the button again.
+
+---
+
+## 21. Hewn rock: the Rough brush
+
+Cells give ruler-straight rock. The `Rough` brush marks where it should look hewn — shafts and tunnels cut by hand — and the bake chips those faces.
+
+1. `Tool = Rough`. `Depth Apply = Fill Bands` covers the whole depth; for the face the camera looks at, `Play Band Only` is enough.
+2. Paint over the edges of the tunnels and shafts — the mass and the air in front of it alike. The painted area is hatched violet.
+3. **Apply Changes**. The faces there come out in flat chips with sharp edges, mostly cut into the rock, a little jutting out.
+4. Too strong, too fine? `Build Settings → Rough`: `Rough Amplitude Cm` (depth), `Rough Chip Size Cm` (size), `Rough Tilt` (slant), `Rough Seed` (another pattern) — and **Apply Changes** again. Staircases of cubes are smoothed into slopes before chipping (`Rough Smooth Radius Cells`, `0` — off); `Rough Smooth XZ Only` keeps the edge into the depth sharp.
+
+Collision stays the cells: the player runs exactly as before. The walkway — the top of `Floor` cells — stays flat, and so does the back wall. Paint at least a few cells: at the edge of the mask the chips fade to the straight face. `Shift` + click erases; **Clear Rough Mask** removes it all.
+
+**Check:** after `Apply Changes` the painted edges are chipped, the rest straight, and there is no gap where the two meet.

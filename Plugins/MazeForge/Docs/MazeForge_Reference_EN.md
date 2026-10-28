@@ -114,7 +114,7 @@ Doors and keys: library types with `Lock Role` `Door` or `Key`, paired by the `L
 
 | Field | Default | Set it? | Meaning |
 |---|---|---|---|
-| `Tool` | `Cells` | optional | What the mouse does: paints the mass of the maze (`Cells`), places objects (`Objects`), merges rooms (`Rooms`), plans the Classic generator's paths (`Path`) or stands ladders (`Ladder`). A tool rather than a modifier key, because cells go into the grid and objects into the spawn asset, and a key that silently changes which file a click edits is a good way to lose work. |
+| `Tool` | `Cells` | optional | What the mouse does: paints the mass of the maze (`Cells`), places objects (`Objects`), merges rooms (`Rooms`), plans the Classic generator's paths (`Path`), stands ladders (`Ladder`) or marks rock to be chipped (`Rough`). A tool rather than a modifier key, because cells go into the grid and objects into the spawn asset, and a key that silently changes which file a click edits is a good way to lose work. |
 | `Paint Type` | `Solid` | optional | The cell type. Visible only when `Tool = Cells`. |
 | `Brush Size` | `1` | optional | The side of the brush square, 1–16. Visible only when `Tool = Cells`. |
 | `Auto Floor Surfaces` | on | optional | After each stroke, retype the mass round it: a reachable top the stroke laid bare — a hole cut, a step drawn — becomes `Floor`, a floor it buried `Solid`. Part of the stroke's undo. Not for back wall strokes. Visible only when `Tool = Cells`. |
@@ -134,6 +134,7 @@ Doors and keys: library types with `Lock Role` `Door` or `Key`, paired by the `L
 | **Clear All Ladders** | Removes every ladder and ladder platform, hand-placed ones included. One undo step. |
 | **Save Ladder Map** | Saves every ladder and platform now placed into the maze's ladder map, replacing the previous one. |
 | **Load Ladder Map** | Replaces the ladders now placed with the saved ladder map. One undo step. |
+| **Clear Rough Mask** | Removes the whole `Rough` mask: every face straight again at the next `Apply Changes`. One undo step. |
 
 **The `Rooms` tool** — the room layout on top of the `Uniform Grid` slicer's lattice.
 
@@ -162,6 +163,16 @@ Merged rooms are hatched, each in its own colour — only in this tool and only 
 | `Shift` + LMB | Cancels a started ladder; otherwise removes every ladder piece in the column under the cursor. |
 
 Before the first click the cell the bottom snaps to is green and the exits of the column amber; after it the ladder to be is drawn whole, with its rungs. The status line gives the height in centimetres and the value of `Climb Height Property`.
+
+**The `Rough` tool** — marks rock to be chipped: the faces of mass in the painted cells, or facing them, come out hewn — flat chips with sharp edges, as a pick leaves rock — at the next `Apply Changes`. Visual only: collision, reachability and placement keep to the cells. The mask is painted on air and mass alike and lives with the drawing (snapshot, `Ctrl+Z`), but a generation leaves it alone.
+
+| Action | What it does |
+|---|---|
+| LMB / drag | Marks cells, `Brush Size` wide. |
+| `Ctrl` + drag | A rectangle. |
+| `Shift` + LMB | Erases the mark. |
+
+`Depth Apply` says which bands: `Fill Bands` and `All Depth` — the whole depth, `Play Band Only` — the play band, `Active Slice Only` — one slice. For the face the camera looks at, the play band is enough. The mask is hatched in violet while the tool is in hand; the chipping itself is in the baked meshes, not in the preview cubes. The top of a `Floor` cell — the walkway — and the back wall stay flat. Where the mask ends, the chips fade to the straight face, so the two meet without a gap; a strip one cell wide therefore barely moves — paint a few cells at least.
 
 ### Objects
 
@@ -359,6 +370,25 @@ What `Bind Decor To Rooms` leaves in the persistent level even when it stands in
 |---|---|---|
 | `Decor Stay In Main Classes` | empty | Classes that stay; subclasses count. Info actors (game mode, world settings and the like) are never moved, listed or not. |
 | `Decor Stay In Main Tag` | `MazeForge.StayInMain` | Put this tag on a single actor to keep it in the persistent level. |
+
+### Rough
+
+How the `Rough` brush chips the faces it was painted over. Every rough face is cut into a fine mesh and its points pushed into the rock — a little out of it — by a pattern of chips that depends only on the world position, so faces, bands and rooms meet without gaps.
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Rough Amplitude Cm` | `20` | How deep the chips go. Keep it under half a cell, or a wall one cell thick is cut through. |
+| `Rough Chip Size Cm` | `40` | How big one chip is. |
+| `Rough Subdivision Cm` | `12.5` | The step the faces are cut into. Smaller — sharper chips, many more triangles: a 50 cm face is 32 triangles at 12.5. |
+| `Rough Overhang` | `0.25` | Share of the depth that juts out of the mass instead of into it. `0` — only into the rock. |
+| `Rough Tilt` | `0.7` | How steeply each chip is tilted. `0` — flat steps; `1` — strongly slanted facets. |
+| `Rough Seed` | `1` | Another pattern of chips. |
+| `Rough Smooth Radius Cells` | `1.5` | Smooth the cube outline over this many cells before chipping: a staircase of cubes becomes a slope, a corner a rounded edge, and the chips go on that. `0` — off. |
+| `Rough Smooth Max Cm` | `40` | How far smoothing may move a point off the cube. |
+| `Rough Smooth Fill` | `0.2` | Share of that it may fill an inner corner by. `0` — outer corners are only cut into the rock and nothing grows into the passage, where the collision is empty. |
+| `Rough Smooth XZ Only` | off | Smooth in the side view only: the edge between the face the camera looks at and the tunnel walls running into the depth stays sharp. |
+
+Changing any of them rebuilds the rooms that have rough faces at the next `Apply Changes`.
 
 ### Palette
 
@@ -781,6 +811,7 @@ Two roles and no names. The world graph keys a transition by its placement id, w
 | `Rooms` | Merges lattice cells into rooms. |
 | `Path` | Plans the Classic generator's main path and branches. |
 | `Ladder` | Stands ladders, two clicks each. |
+| `Rough` | Marks rock to be chipped at bake. |
 
 ---
 

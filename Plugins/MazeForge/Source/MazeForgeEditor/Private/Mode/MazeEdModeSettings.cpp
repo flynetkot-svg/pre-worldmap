@@ -726,6 +726,25 @@ void UMazeEdModeSettings::MarkFloorSurfaces()
 	}
 }
 
+void UMazeEdModeSettings::ClearRoughMask()
+{
+	if (UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Rough mask")))
+	{
+		const int32 Cleared = Asset->Grid.RoughCells.Num();
+		if (Cleared == 0)
+		{
+			return;
+		}
+
+		const FScopedTransaction Transaction(LOCTEXT("MazeClearRough", "MazeForge: Clear Rough Mask"));
+		Asset->Modify();
+		Asset->Grid.RoughCells.Reset();
+		Asset->NotifyGridChanged();
+		UE_LOG(LogMazeForge, Log, TEXT("Rough mask: %d cell(s) cleared. Apply Changes straightens the faces."), Cleared);
+		RefreshStatus();
+	}
+}
+
 void UMazeEdModeSettings::SaveSnapshot()
 {
 	if (UMazeGridAsset* Asset = RequireTarget(TargetAsset.LoadSynchronous(), TEXT("Snapshot")))

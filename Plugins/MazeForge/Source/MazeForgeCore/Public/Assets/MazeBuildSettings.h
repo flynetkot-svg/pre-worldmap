@@ -238,6 +238,61 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Bake")
 	bool bMergeCoplanarFaces = true;
 
+	// ------------------------------------------------------------------- rough
+	//
+	// What the Rough brush does to the faces it was painted over: cuts them into a fine mesh and
+	// pushes it about in flat chips with sharp edges, as a pick leaves rock. Visual only.
+
+	/** How deep the chips go, in cm. Keep it under half a cell, or a wall one cell thick is cut through. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "0", UIMax = "100", Units = "cm"))
+	float RoughAmplitudeCm = 20.0f;
+
+	/** How big one chip is, in cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "5", UIMax = "200", Units = "cm"))
+	float RoughChipSizeCm = 40.0f;
+
+	/** The step the faces are cut into, in cm. Smaller — sharper chips, many more triangles. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "2", UIMax = "50", Units = "cm"))
+	float RoughSubdivisionCm = 12.5f;
+
+	/** Share of the depth that juts out of the mass instead of into it. 0 — only into the rock. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "0", ClampMax = "1"))
+	float RoughOverhang = 0.25f;
+
+	/** How steeply each chip is tilted. 0 — flat steps; 1 — strongly slanted facets. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "0", ClampMax = "2"))
+	float RoughTilt = 0.7f;
+
+	/** Another pattern of chips, same amount of them. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough")
+	int32 RoughSeed = 1;
+
+	/**
+	 *  Smooth the cube outline before chipping it, over this many cells: a staircase of cubes
+	 *  becomes a slope, a corner a rounded edge, and the chips go on that. 0 — off: chips on the
+	 *  cubes as they are.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "0", UIMax = "4"))
+	float RoughSmoothRadiusCells = 1.5f;
+
+	/** How far the smoothing may move a point off the cube, in cm. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "0", UIMax = "150", Units = "cm"))
+	float RoughSmoothMaxCm = 40.0f;
+
+	/**
+	 *  How much of that it may fill an inner corner by, as a share. 0 — only outer corners are cut
+	 *  into the rock; nothing grows into the passage, where the collision is empty.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough", meta = (ClampMin = "0", ClampMax = "1"))
+	float RoughSmoothFill = 0.2f;
+
+	/**
+	 *  Smooth in the side view only (X and Z): the edge between the face the camera looks at and
+	 *  the tunnel walls running into the depth stays sharp. Off — rounded in all three directions.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rough")
+	bool bRoughSmoothXZOnly = false;
+
 	// ------------------------------------------------------------------- Decor binding
 
 	/**
