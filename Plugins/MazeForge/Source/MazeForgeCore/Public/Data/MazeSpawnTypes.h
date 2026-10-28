@@ -95,6 +95,26 @@ enum class EMazeLockRole : uint8
 	Key = 2
 };
 
+/**
+ *  A lift and the terminals that call it.
+ *
+ *  Which terminal calls which lift is worked out at export: a terminal standing at the level of a
+ *  lift's stop belongs to the nearest such lift, and to that stop. Lift Id on the placements
+ *  overrides that when it is not enough — a terminal far off, two lifts side by side.
+ */
+UENUM(BlueprintType)
+enum class EMazeLiftRole : uint8
+{
+	/** Neither. Most things. */
+	None = 0,
+
+	/** The platform. Rides between its stops; the actor needs a Maze Lift component. */
+	Platform = 1,
+
+	/** A call terminal. Brings the platform to its stop; the actor needs a Maze Lift Call component. */
+	Call = 2
+};
+
 /** How an object decides which way it faces. */
 UENUM(BlueprintType)
 enum class EMazeFacingMode : uint8
@@ -257,6 +277,13 @@ struct MAZEFORGECORE_API FMazeObjectType
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	EMazeLockRole LockRole = EMazeLockRole::None;
 
+	/**
+	 *  A lift platform or a lift call terminal. Platforms are stood with the Lift tool, two stops
+	 *  each; terminals with the object brush, at the floor of a stop. See EMazeLiftRole.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
+	EMazeLiftRole LiftRole = EMazeLiftRole::None;
+
 	// ------------------------------------------------------------------ ladder
 
 	/**
@@ -411,6 +438,18 @@ struct MAZEFORGECORE_API FMazePlacement
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement", meta = (ClampMin = "0"))
 	int32 ClimbCells = 0;
+
+	/**
+	 *  For a lift and its terminals: which terminals call which lift. Empty — worked out at
+	 *  export: the lift is named after its cell, and a terminal goes to the nearest lift with a
+	 *  stop at its level. A lift's Climb Cells is its travel, from the lower stop to the upper.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
+	FName LiftId;
+
+	/** For a lift: it waits at the upper stop when the game starts, not the lower. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
+	bool bLiftStartsAtTop = false;
 
 	/** Put here by Generate Locks. The next Generate Locks, or a new maze, replaces it. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")

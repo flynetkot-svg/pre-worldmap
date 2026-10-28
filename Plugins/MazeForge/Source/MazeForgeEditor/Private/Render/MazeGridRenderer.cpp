@@ -309,6 +309,27 @@ void FMazeGridRenderer::DrawPlacements(FPrimitiveDrawInterface* PDI, const FMaze
 
 		const int32 SliceY = MazePlacement::BandSliceY(Grid, Placement.Band);
 
+		// A lift: its shaft from stop to stop, thin, and the platform, crossed, at the stop it
+		// starts at — which one that is shows at a glance.
+		if (Type && Type->LiftRole == EMazeLiftRole::Platform && Placement.ClimbCells > 0)
+		{
+			const int32 Lower = Placement.CellXZ.Y;
+			const int32 Upper = Lower + Placement.ClimbCells;
+			const FBox Low = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X, SliceY, Lower));
+			const FBox High = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X + Size.X - 1, SliceY, Upper));
+			const double Y = Low.GetCenter().Y;
+
+			const FMazeLineStyle Shaft(Line.Color, Line.Thickness * 0.5f);
+			DrawRectXZ(PDI, Low.Min.X, High.Max.X, Low.Min.Z, High.Min.Z, Y, Shaft);
+
+			const int32 StartRow = Placement.bLiftStartsAtTop ? Upper : Lower;
+			const FBox Platform = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X, SliceY, StartRow))
+				+ Grid.GetCellBounds(FIntVector(Placement.CellXZ.X + Size.X - 1, SliceY, StartRow + Size.Y - 1));
+			DrawRectXZ(PDI, Platform.Min.X, Platform.Max.X, Platform.Min.Z, Platform.Max.Z, Y, Line);
+			DrawCrossXZ(PDI, Platform.Min.X, Platform.Max.X, Platform.Min.Z, Platform.Max.Z, Y, Line);
+			continue;
+		}
+
 		// A ladder sized to its shaft is drawn as the ladder, the whole length, not as its
 		// footprint: which shafts already have one is the thing the designer is looking for.
 		if (Type && Type->Category == EMazeObjectCategory::Climb && Placement.ClimbCells > 0)

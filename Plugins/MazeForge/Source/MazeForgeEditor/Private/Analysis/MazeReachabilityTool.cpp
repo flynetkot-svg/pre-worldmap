@@ -72,7 +72,8 @@ namespace
 				In.KeyPlacements.Add(Index);
 			}
 
-			if (Type->Category == EMazeObjectCategory::Climb)
+			// A lift carries him its whole travel, as a ladder does its whole height.
+			if (Type->Category == EMazeObjectCategory::Climb || Type->LiftRole == EMazeLiftRole::Platform)
 			{
 				// A ladder sized to its shaft climbs its Climb Cells, not just its footprint.
 				FIntPoint Max = Placement.MaxCellXZ(Type->FootprintCells);

@@ -34,6 +34,7 @@ Anything not mentioned here, leave alone. The defaults are chosen for a first ma
 19. [Moving a maze to another project](#19-moving-a-maze-to-another-project)
 20. [Floors](#20-floors)
 21. [Hewn rock: the Rough brush](#21-hewn-rock-the-rough-brush)
+22. [Lifts](#22-lifts)
 
 ---
 
@@ -1132,3 +1133,123 @@ Cells give ruler-straight rock. The `Rough` brush marks where it should look hew
 Collision stays the cells: the player runs exactly as before. The walkway — the top of `Floor` cells — stays flat, and so does the back wall. Paint at least a few cells: at the edge of the mask the chips fade to the straight face. `Shift` + click erases; **Clear Rough Mask** removes it all.
 
 **Check:** after `Apply Changes` the painted edges are chipped, the rest straight, and there is no gap where the two meet.
+
+---
+
+## 22. Lifts
+
+A lift is a platform in a shaft with two stops and a call terminal at each: press the button and the platform rides to you (or is already here); step on it and after `Board Delay` (0.75 s) it takes you to the other stop. Without the button it goes nowhere: **button + step on = ride**. A terminal finds its lift on its own or by name (`Lift Id`), the way a key finds its door. The lift crushes whoever is under it, and a fall down an empty shaft hurts or kills depending on the height.
+
+What it takes: a shaft, two Blueprints, two library types, and a component on the character.
+
+### 22.1 The shaft
+
+The shaft is **one room** from its floor to the upper exit (the `Rooms` tool, as in 2.3). A floor at the bottom, an exit at the top: a ledge to the side or a hole in the slab. The terminals go on the landings by the stops — those may be in neighbouring rooms.
+
+### 22.2 The platform Blueprint
+
+1. **Blueprint Class → Actor**, name it `BP_LiftPlatform`.
+2. The root is the platform's `Static Mesh`: **as wide as the shaft**, **up to 30 cm** thick (otherwise the character cannot step onto it — at a stop the platform stands proud of the floor by its thickness).
+3. On the root: `Mobility = Movable`, `Collision Presets = BlockAll`.
+4. **Add Component → Maze Lift.** The fields can stay as they are: the stops, the name and the starting stop come from the export. `Speed` is in cm/s; raise it for a tall shaft (a 57 m shaft at 200 cm/s is almost 30 seconds of riding). Leave the Blueprint's `Lift Id` field **empty**: it is the class default, and with it every lift in the game shares one name. `Ride When Boarded` (on) — after a terminal's call, a player who steps on and stays `Board Delay` is taken to the other stop. Arrived — press the terminal again to ride back. `Ready` — called and waiting for a rider (for a lamp on the terminal). The platform needs no Box Collision.
+5. Optionally — sound and lights on `On Departed` / `On Arrived`.
+
+### 22.3 The terminal Blueprint
+
+1. **Blueprint Class → Actor**, `BP_LiftTerminal`: the panel mesh. Then the zone where the player can press: in the **Components** panel select the root (the mesh) → **+ Add → Box Collision**. Set its `Box Extent` so the box covers the spot **in front of** the panel where the player stands — say `(60, 100, 100)`; along Y (depth) it must reach the player's plane even if the panel is pushed towards the background. `Collision Presets = OverlapAllDynamic`, `Generate Overlap Events` on. Without this box neither the touch nor `Get Overlapping Actors` works: a `BlockAll` mesh stops the player rather than overlapping them.
+2. **Add Component → Maze Lift Call.** Leave the fields — the export writes which lift to call and to which stop.
+3. Optionally: `On Called` — a green lamp, `On Refused` — a red blink.
+
+### 22.4 The player's button
+
+In the character Blueprint, on your interact input (say `E`):
+
+`Get Overlapping Actors` (Class Filter — `BP_LiftTerminal`) → `For Each Loop` → `Get Component by Class` (`Maze Lift Call`) → `Is Valid` → **`Call`**.
+
+For a first try without a button: turn on `Call On Touch` on the terminal — the lift comes as soon as the player touches the zone.
+
+### 22.5 Library types
+
+In `DA_MazeObjectLibrary → Types` — two entries:
+
+| Field | Platform | Terminal |
+|---|---|---|
+| `Type Id` | `LiftPlatform` | `LiftCall` |
+| `Category` | `Climb` | `System` (any) |
+| `Actor Class` | `BP_LiftPlatform` | `BP_LiftTerminal` |
+| `Editor Color` | something visible, say orange | the same |
+| `Allowed Anchors` | `Floor` | `Floor` |
+| `Footprint Cells` | `(shaft width, 1)` | `(1, 2)` |
+| **`Lift Role`** | **`Platform`** | **`Call`** |
+
+The rest as default. Leave the platform's `Climb Height Property` and `Top Piece Type` empty.
+
+### 22.6 Placing the lift
+
+1. `Target Asset` — your maze; in the `Objects` palette click the `LiftPlatform` swatch — `Tool = Lift` switches on.
+2. Want the platform to wait upstairs? Turn on `Brush → Lift Starts At Top`.
+3. **First click** — in the **left** column of the shaft, near the floor: the lower stop. Green shows where it goes (the shaft floor or the nearest exit).
+4. **Second click** — at the level of the upper exit: the stop snaps to the exit like a ladder top. The highlight: the shaft green, the lower stop amber.
+5. The status line says which click is next. `Shift` + click — cancel what was started, or remove the lift in that column. A new lift in the same column replaces the old one.
+6. Done: the map shows a thin shaft frame and a crossed frame where the platform waits. The log: `Lift: 'LiftPlatform' at X …, stops Z … and Z … (… cm), waits at the lower one.`
+
+### 22.7 Placing the terminals
+
+1. `Tool = Objects`, the `LiftCall` swatch.
+2. One terminal on the floor **beside** the shaft at the lower stop, the other on the landing by the upper exit. Not in the shaft itself: the platform comes down there.
+3. The terminal's level (the cell it stands on) must be close to the stop's level: ±1.5 m of give (±3 cells at 50 cm a cell). A landing is seldom dead level with the stop — that is fine.
+
+**Several lifts side by side.** Before placing a lift set `Brush → Paint Lift Id` (say `EastLift`), place the lift and both its terminals, then change the name for the next one. An empty name — on export the terminal takes the nearest lift along X with a stop at its level.
+
+### 22.8 Build
+
+1. **Check Reachability** — the lift counts as a climb, the upper exit is no longer red.
+2. `Build → Apply Changes`. For every terminal the log says what it is bound to: `lift terminal 'LiftCall' at X … Z … calls lift 'Lift_225_201' to its lower stop` (and `upper` for the other one). No lift found — `lift terminal … finds no lift` (a warning): move the terminal closer to the stop's level, or give it and the lift the same `Paint Lift Id`.
+3. Save the spawn asset.
+
+### 22.9 Hazards
+
+**The lift crushes.** The platform rides down onto a pawn — the pawn gets `Apply Damage` with `Crush Damage` (10000 by default, i.e. death), and the lift sends `On Crushed(Victim)`. Someone standing beside it (`Crush Inset`) or riding on it is not caught. Off — the `Crushes` tick on `Maze Lift`; `Crush Damage = 0` — the event only, the Blueprint decides.
+
+**Falling.** On the character — **Add Component → Maze Fall Damage**:
+
+| Fall height | What happens |
+|---|---|
+| up to `Safe Height` (350 cm) | nothing |
+| `Safe Height` to `Lethal Height` | damage from `Min Damage` (10) to `Max Damage` (80), linear |
+| from `Lethal Height` (1000 cm) | `Lethal Damage` (10000) — death |
+
+Height is measured from the top of the jump to the landing: a jump down a shaft, off a ledge, off a ladder — one rule. Landing on a lift platform is a landing too.
+
+**Health.** Both kinds of damage go through `Apply Damage`. On the character: `Event AnyDamage` → `Health -= Damage` → if `Health <= 0` — death. `On Fall(Height, Damage, bLethal)` is for the animation, sound, camera shake.
+
+### 22.10 Checking in game
+
+1. PIE. The platform waits below. Step on it — it goes nowhere.
+2. Step off, press the lower terminal (log: `already there, ready to ride`), step on — after 0.75 s it rides up.
+3. Upstairs step off, press the upper terminal, step on — it rides down.
+4. Walk upstairs and press the upper terminal while the platform is below — it rises to you; step on — it rides down.
+3. Stand under the platform and call it down — `On Crushed`, death.
+4. Jump into an empty shaft higher than `Lethal Height` — death; from just over `Safe Height` — a little damage.
+5. Leave the room and come back — the lift is at the stop where you left it.
+
+### 22.11 When it does not work
+
+| What you see | Why | What to do |
+|---|---|---|
+| The terminal does nothing | Look at `LogMazeForge` at the moment of the press — one of the lines below is there | |
+| `Lift call …: no lift '…' is loaded` | The shaft's room is not loaded, or the terminal has another `Lift Id`; `None` — the export bound it to nothing | Streaming of neighbouring rooms; `Lift Id`; terminal at a stop's level and `Apply Changes` |
+| Stepped on the platform — it does not go | The terminal at this stop was not pressed | Button first, then step on |
+| Touching / pressing the terminal does nothing, the log is empty | No Box Collision, or it does not overlap the player | 22.3: a Box Collision with `OverlapAllDynamic` reaching the player's plane |
+| `Lift '…': called to stop N — already there, ready to ride` | The lift is here and waiting | Step on the platform — it goes |
+| `Lift '…': one stop only` | The platform was placed with the `Objects` brush, not the `Lift` tool | Remove it and place it with two `Lift` clicks |
+| `Lift '…': the root component is not Movable` | The Blueprint's root is `Static` | `Mobility = Movable` |
+| `Lift call …: refused stop N` | The lift is riding (`Ignore Calls While Moving`) | Wait for it to stop |
+| A terminal calls the wrong lift | Two lifts side by side without names | `Paint Lift Id` on the lift and its terminals |
+| Log: `two lifts are called …` | Two lifts share a `Lift Id` | Different names |
+| Terminals call the wrong lift, log `two lifts are called …` | `Lift Id` typed into the Blueprint's component — one name for every lift | Clear `Lift Id` in the Blueprints' `Maze Lift` and `Maze Lift Call` |
+| Nothing in this section works, no `Lift` lines in the log | The editor runs an old build of the plugin | Close Unreal, build from the IDE (not Live Coding — headers changed), `Apply Changes` |
+| The player falls through / is not carried | The root is not `Movable`, or has no blocking collision | `Mobility = Movable`, `BlockAll` |
+| The character cannot step onto the platform | The platform is thicker than the character's step | Under 30 cm, or a larger `Max Step Height` |
+| The platform is the wrong width / sticks into the wall | `Footprint Cells.X` ≠ shaft width, or the first click was not in the left column | Fix the footprint, place it again |
+| The platform swatch switches on `Ladder`, not `Lift` | `Lift Role` is not `Platform` | Set `Lift Role = Platform` |

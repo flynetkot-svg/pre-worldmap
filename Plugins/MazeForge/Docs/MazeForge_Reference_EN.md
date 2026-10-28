@@ -33,6 +33,7 @@ In the tables, "Default" is what a freshly created asset has in that field. "Set
 15. [Generators](#15-generators)
 16. [Reachability, paths, doors and keys](#16-reachability-paths-doors-and-keys)
 17. [Ladders](#17-ladders)
+18. [Lifts](#18-lifts)
 
 ---
 
@@ -442,6 +443,7 @@ The only field is `Types`. Each entry:
 | `Scale` | `(1, 1, 1)` | optional | The size the actor is spawned at. See below. |
 | `Transition Role` | `None` | required for transitions | `Gate` or `Entry`. |
 | `Lock Role` | `None` | required for doors and keys | `Door` closes the passage it stands in, floor to ceiling, until a key with the same `Lock Id` has been picked up; `Key` is picked up on touch. The reachability check and `Generate Locks` read it. In the game the actor needs a `Maze Lock` or `Maze Key` component. |
+| `Lift Role` | `None` | required for lifts | `Platform` — a lift platform, placed with the `Lift` tool (two clicks); `Call` — a call terminal, placed with the brush. The platform's palette swatch switches on `Tool = Lift` by itself. In the game the actors need `Maze Lift` and `Maze Lift Call`. In detail: [18](#18-lifts). |
 
 > **Why `Scale` lives here.** The export owns every actor it makes: each `Apply Changes` destroys them and builds them again from the type. A size typed into the level survives exactly until the next `Apply`. Set here, it comes back every time.
 >
@@ -466,7 +468,7 @@ The only field is `Types`. Each entry:
 
 | Field | Default | Meaning |
 |---|---|---|
-| `Random Variant` | off | Wherever this type is named as the one to place for you — a generator's `Ladder Type`, the `Ladder` tool, `Fix Reachability`, `Generate Locks`, the start and exit markers — each placement may get any library type of the same `Category` and the same role (door, key, transition, a ladder's platform or not). Random, but the same pick every time for the same spot. Give variants the same footprint: the space is checked for the type asked for. `Generate Objects` mixes on its own: a rule with `Target = Category`. |
+| `Random Variant` | off | Wherever this type is named as the one to place for you — a generator's `Ladder Type`, the `Ladder` tool, `Fix Reachability`, `Generate Locks`, the start and exit markers — each placement may get any library type of the same `Category` and the same role (door, key, transition, lift, a ladder's platform or not). Random, but the same pick every time for the same spot. Give variants the same footprint: the space is checked for the type asked for. `Generate Objects` mixes on its own: a rule with `Target = Category`. |
 
 > **Snapping measures what you see.** `Snap To Anchor Surface` takes the bounds of the actor's visible parts only: trigger and collision volumes (boxes, capsules, spheres) are left out, so a ladder's "you may climb" box below its first rung no longer lifts it off the floor.
 
@@ -802,6 +804,14 @@ Two roles and no names. The world graph keys a transition by its placement id, w
 | `Door` | Closes the passage it stands in until a key with the same `Lock Id` has been picked up. |
 | `Key` | Picked up on touch; opens every door with the same `Lock Id`. |
 
+### Lift role
+
+| Value | Meaning |
+|---|---|
+| `None` | Not a lift. |
+| `Platform` | A lift platform, rides between its stops. |
+| `Call` | A lift call terminal. |
+
 ### Edit tool
 
 | Value | Meaning |
@@ -812,6 +822,7 @@ Two roles and no names. The world graph keys a transition by its placement id, w
 | `Path` | Plans the Classic generator's main path and branches. |
 | `Ladder` | Stands ladders, two clicks each. |
 | `Rough` | Marks rock to be chipped at bake. |
+| `Lift` | Places a lift: the lower stop, then the upper. |
 
 ---
 
@@ -1110,3 +1121,57 @@ In a designer maze every ladder is put down by hand, and a stray `Clear All Ladd
 ### Out of the player's way
 
 Objects stand in the middle of their band — in `Play`, on the player's plane — so a ladder stands right in his path. Give the ladder type and its platform type the same `Offset Y`: negative is towards the background (`-60`…`-80` with a 2-cell play band of 50 cm). The ladder's trigger boxes move with it: check they still reach the player's plane, or that climbing changes only X and Z of the character. The brush frames stay on the band's cell; `Offset` is not drawn.
+
+---
+
+## 18. Lifts
+
+### Roles
+
+| Where | Field | Meaning |
+|---|---|---|
+| Library type | `Lift Role` | `Platform` — the platform, `Call` — a call terminal. |
+| Placement | `Climb Cells` | On a platform — its travel in cells, lower stop to upper. |
+| Placement | `Lift Id` | The binding name. Empty: on a platform — `Lift_X_Z` from its cell, on a terminal — the nearest lift. |
+| Placement | `Lift Starts At Top` | The platform waits at its upper stop. |
+| Mode settings | `Paint Lift Id`, `Lift Starts At Top` | What lifts and terminals placed now get. |
+
+### Binding terminals on export
+
+With a `Lift Id` — to the lift of that name, its stop nearest in height. Without — to the nearest lift along X with a stop within 1.5 m of the terminal's level (in cells, rounded up, one at least). Found — a `calls lift … to its lower/upper stop` line in the log. Level format raised to 3: after updating the plugin the first `Apply Changes` rewrites every level once, so the terminals bind afresh. None found — a warning in the log, and the terminal answers `On Refused`.
+
+### Maze Lift (on the platform)
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Lift Id`, `Stops`, `Start Stop` | from the placement | Name, stop heights above the spawn point (cm), starting stop. |
+| `Speed` | 200 cm/s | Speed. |
+| `Ignore Calls While Moving` | on | A call while riding is ignored. |
+| `Ride When Boarded` | on | After a terminal's call (the lift came, or was already here) a player standing on the platform for `Board Delay` rides it to the other stop. No call — no ride; once there it waits for the next call. `Ready` (read-only) — called and waiting for a rider. |
+| `Board Delay` | 0.75 s | How long to stand on it before it sets off. |
+| `Crushes` | on | Riding down, it crushes a pawn under it. |
+| `Crush Damage` | 10000 | Damage through `Apply Damage`. `0` — only `On Crushed`. |
+| `Crush Reach` | 5 cm | How close under the platform counts as under it. |
+| `Crush Inset` | 10 cm | Margin off the platform's edges, so someone beside it is not caught. |
+
+Events: `On Departed(Stop)`, `On Arrived(Stop)`, `On Crushed(Victim)`. Functions: `Move To Stop`, `Move To Other Stop`. The stop the lift stands at is kept in `Maze Progress` and survives its room unloading.
+
+### Maze Lift Call (on the terminal)
+
+`Lift Id`, `Stop` — from the export. `Call On Touch` — call on touch. `Call` — call; `On Called` / `On Refused` — for an indicator.
+
+### Maze Fall Damage (on the character)
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Safe Height` | 350 cm | A fall up to this is harmless. |
+| `Lethal Height` | 1000 cm | From this height on — death. |
+| `Min Damage` / `Max Damage` | 10 / 80 | Damage just over `Safe Height` / just under `Lethal Height`, linear between. |
+| `Lethal Damage` | 10000 | Damage from `Lethal Height` on. |
+| `Apply Damage` | on | Off — only `On Fall`. |
+
+`On Fall(Height, Damage, bLethal)`; `Damage For Height` — what a fall from that height costs. Height runs from the fall's highest point (the top of the jump) to the landing.
+
+### On the map
+
+A platform is drawn in its type's color: a thin shaft frame from stop to stop, and a crossed frame where the platform waits. Between the `Lift` tool's clicks the shaft to be is `Brush Paint`, the lower stop `Brush Blocked`.

@@ -49,6 +49,18 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
 	FName LockId;
 
+	/** A lift's own name, or the lift a call terminal calls. None on everything else. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
+	FName LiftId;
+
+	/** A lift's stops: heights above where it was spawned, in cm, lowest first. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
+	TArray<float> LiftStops;
+
+	/** A lift: the stop it waits at when the game starts. A call terminal: the stop it calls to. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
+	int32 LiftStop = 0;
+
 	/** The placement id of an actor, or 0 if it does not carry one. Null-safe. */
 	UFUNCTION(BlueprintPure, Category = "MazeForge")
 	static int32 GetPlacementId(const AActor* Actor);

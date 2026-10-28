@@ -30,8 +30,19 @@ void UMazeLockComponent::BeginPlay()
 
 	if (Owner && bUnlockOnTouch)
 	{
-		Owner->OnActorBeginOverlap.AddDynamic(this, &UMazeLockComponent::HandleOverlap);
+		Owner->OnActorBeginOverlap.AddUniqueDynamic(this, &UMazeLockComponent::HandleOverlap);
 	}
+}
+
+void UMazeLockComponent::EndPlay(const EEndPlayReason::Type Reason)
+{
+	// A room hidden by streaming and shown again plays BeginPlay a second time on the same
+	// actor: without this the overlap would be bound twice.
+	if (AActor* Owner = GetOwner())
+	{
+		Owner->OnActorBeginOverlap.RemoveDynamic(this, &UMazeLockComponent::HandleOverlap);
+	}
+	Super::EndPlay(Reason);
 }
 
 void UMazeLockComponent::HandleOverlap(AActor* OverlappedActor, AActor* OtherActor)

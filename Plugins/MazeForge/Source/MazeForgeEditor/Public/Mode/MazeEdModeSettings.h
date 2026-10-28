@@ -49,7 +49,13 @@ enum class EMazeEditTool : uint8
 	 *  them, come out hewn at the next Apply Changes. Visual only. Shift — erase. Depth Apply
 	 *  says which bands; for the face the camera sees, the Play band is enough.
 	 */
-	Rough   = 5
+	Rough   = 5,
+	/**
+	 *  Stand a lift: first click — the lower stop, second — the upper one, snapped like a
+	 *  ladder's. The platform waits at the lower stop unless Lift Starts At Top. Shift+click —
+	 *  cancel, or remove the lift in that column. Which platform: a lift swatch in the palette.
+	 */
+	Lift    = 6
 };
 
 /** How a brush stroke is spread through the depth axis Y. */
@@ -334,9 +340,23 @@ public:
 	 *  Climb type picks the Ladder tool, anything else the object brush.
 	 */
 	UPROPERTY(VisibleAnywhere, config, Category = "Brush",
-		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Ladder",
+		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Ladder || Tool == EMazeEditTool::Lift",
 			EditConditionHides))
 	FName PaintObjectType;
+
+	/**
+	 *  The Lift Id given to lifts and lift terminals placed now. Empty — worked out at export: a
+	 *  terminal calls the nearest lift with a stop at its level. Give a lift and its terminals the
+	 *  same name when that is not enough.
+	 */
+	UPROPERTY(EditAnywhere, config, Category = "Brush",
+		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Lift", EditConditionHides))
+	FName PaintLiftId;
+
+	/** A lift placed now waits at its upper stop when the game starts, not the lower. */
+	UPROPERTY(EditAnywhere, config, Category = "Brush",
+		meta = (EditCondition = "Tool == EMazeEditTool::Lift", EditConditionHides))
+	bool bLiftStartsAtTop = false;
 
 	/**
 	 *  The Lock Id given to doors and keys placed with the brush: one red key opens every red

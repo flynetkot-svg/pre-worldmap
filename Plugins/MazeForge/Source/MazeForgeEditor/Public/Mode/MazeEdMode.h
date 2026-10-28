@@ -141,6 +141,12 @@ private:
 	/** How far, in rows, the top of a ladder snaps to an exit: about a metre. */
 	static int32 LadderTopTolerance(const FMazeGrid& Grid);
 
+	/** The Lift tool's click: the lower stop, then the upper, then the lift. Shift — cancel or remove. */
+	bool ApplyLiftClick(bool bShift);
+
+	/** The lift platform type picked in the palette, or None. */
+	FName ResolveLiftType() const;
+
 	/** The Ladder tool's verdict for the hovered cell, ready to append to the HUD line. */
 	FString LadderHoverStatus(const UMazeGridAsset& Asset) const;
 
@@ -216,6 +222,9 @@ private:
 	bool bLadderStarted = false;
 	FIntPoint LadderStart = FIntPoint::ZeroValue;
 	bool bLadderStartOnFloor = true;
+
+	/** Which two-click tool started it: the Ladder and the Lift tool share the first click. */
+	uint8 StartedTool = 0;
 
 	/**
 	 *  Fuses or splits the lattice cells the drag covered, and says what it did.

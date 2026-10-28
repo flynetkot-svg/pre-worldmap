@@ -533,8 +533,8 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 	const FMazeGrid& Grid = Asset->Grid;
 	const UMazeEditorStyleAsset& Style = Settings->GetStyle();
 
-	// A ladder half-placed with another tool picked in between is forgotten, not resumed.
-	if (Settings->Tool != EMazeEditTool::Ladder)
+	// A ladder or a lift half-placed with another tool picked in between is forgotten, not resumed.
+	if (static_cast<uint8>(Settings->Tool) != StartedTool)
 	{
 		bLadderStarted = false;
 	}
@@ -882,6 +882,51 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 			}
 		}
 	}
+	else if (Settings->Tool == EMazeEditTool::Lift)
+	{
+		// The stop the click would take, green; after the first click the shaft to be, and the
+		// platform's row at the lower stop.
+		const int32 SliceY = Grid.Depth.PlaneCellY();
+		const UMazeObjectLibrary* Library = Settings->GetObjectLibrary();
+		const FMazeObjectType* Type = Library ? Library->FindType(ResolveLiftType()) : nullptr;
+		const int32 Width = Type ? FMath::Max(1, Type->FootprintCells.X) : 1;
+		const int32 Tolerance = LadderTopTolerance(Grid);
+
+		FMazeShaft Column;
+		if (!bLadderStarted)
+		{
+			if (MazeLadders::FindColumn(Grid, SliceY, FIntPoint(HoveredCell.X, HoveredCell.Z), Column))
+			{
+				int32 Level = MazeLadders::LevelAtOrBelow(Column, HoveredCell.Z);
+				for (const int32 Exit : Column.Exits)
+				{
+					if (FMath::Abs(Exit - HoveredCell.Z) <= Tolerance && FMath::Abs(Exit - HoveredCell.Z) < FMath::Abs(Level - HoveredCell.Z))
+					{
+						Level = Exit;
+					}
+				}
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, FIntVector(Column.Bottom.X, SliceY, Level),
+					FIntVector(Column.Bottom.X + Width - 1, SliceY, Level), Style.BrushPaint);
+			}
+		}
+		else
+		{
+			const int32 Top = MazeLadders::FindColumn(Grid, SliceY, LadderStart, Column)
+				? MazeLadders::SnapTop(Column, LadderStart.Y, HoveredCell.Z, Tolerance) : INDEX_NONE;
+			const FIntVector From(LadderStart.X, SliceY, LadderStart.Y);
+			if (Top != INDEX_NONE)
+			{
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, From,
+					FIntVector(LadderStart.X + Width - 1, SliceY, Top), Style.BrushPaint);
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, From,
+					FIntVector(LadderStart.X + Width - 1, SliceY, LadderStart.Y), Style.BrushBlocked);
+			}
+			else
+			{
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, From, From, Style.BrushErase);
+			}
+		}
+	}
 	else if (Settings->Tool == EMazeEditTool::Ladder)
 	{
 		// Before the first click: the level the bottom would snap to, green, and the exits of
@@ -1122,6 +1167,15 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			else if (Settings->Tool == EMazeEditTool::Ladder)
 			{
 				Status += LadderHoverStatus(*Asset);
+			}
+			else if (Settings->Tool == EMazeEditTool::Lift)
+			{
+				const FName LiftType = ResolveLiftType();
+				Status += LiftType.IsNone()
+					? FString(TEXT("  |  LIFT: NO PLATFORM TYPE — click a lift platform swatch in the palette"))
+					: FString::Printf(TEXT("  |  LIFT '%s': %s  |  Shift — %s"), *LiftType.ToString(),
+						bLadderStarted ? TEXT("click — the UPPER stop") : TEXT("click — the LOWER stop"),
+						bLadderStarted ? TEXT("cancel") : TEXT("remove the lift in this column"));
 			}
 			else if (Settings->Tool == EMazeEditTool::Rough)
 			{
@@ -1496,6 +1550,21 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 			return true;
 		}
 
+		// And the Lift tool, two clicks a lift.
+		if (Settings->Tool == EMazeEditTool::Lift)
+		{
+			if (Event == IE_Pressed)
+			{
+				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
+				if (bHasHover && ApplyLiftClick(bShift) && ViewportClient)
+				{
+					ViewportClient->Invalidate(false, false);
+				}
+			}
+
+			return true;
+		}
+
 		// So is the Ladder tool: one ladder per click.
 		if (Settings->Tool == EMazeEditTool::Ladder)
 		{
@@ -1832,6 +1901,7 @@ bool UMazeEdMode::ApplyObjectClick(bool bErase)
 	Placement.CellXZ = CellXZ;
 	Placement.Band = Settings->PaintBand;
 	Placement.LockId = Type->LockRole != EMazeLockRole::None ? Settings->PaintLockId : NAME_None;
+	Placement.LiftId = Type->LiftRole != EMazeLiftRole::None ? Settings->PaintLiftId : NAME_None;
 
 	// The hand is allowed to be wrong. A crate half sunk into a wall is sometimes exactly what
 	// the scene wants, and a brush that refuses is a brush that argues. The generator is the one
@@ -2017,6 +2087,7 @@ bool UMazeEdMode::ApplyLadderClick(bool bShift)
 		}
 
 		bLadderStarted = true;
+		StartedTool = static_cast<uint8>(EMazeEditTool::Ladder);
 		return true;
 	}
 
@@ -2060,6 +2131,169 @@ bool UMazeEdMode::ApplyLadderClick(bool bShift)
 		bLadderStartOnFloor ? TEXT("") : TEXT(", standing on the ladder below"),
 		Pieces.Num() > 1 ? *FString::Printf(TEXT(", platform '%s'"), *Pieces[1].TypeId.ToString())
 		                 : TEXT(", no platform — the type names no Top Piece Type"));
+
+	bLadderStarted = false;
+	return true;
+}
+
+// ---------------------------------------------------------------- lifts
+
+FName UMazeEdMode::ResolveLiftType() const
+{
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+	const FMazeObjectType* Picked = Library ? Library->FindType(Settings->PaintObjectType) : nullptr;
+	return (Picked && Picked->LiftRole == EMazeLiftRole::Platform) ? Picked->TypeId : NAME_None;
+}
+
+bool UMazeEdMode::ApplyLiftClick(bool bShift)
+{
+	UMazeGridAsset* Asset = GetTargetAsset();
+	UMazeSpawnAsset* Spawns = Settings ? Settings->GetSpawnAsset() : nullptr;
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+
+	if (!Asset || !Spawns || !Library)
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Lift: the target needs a Spawns asset with a Library."));
+		bLadderStarted = false;
+		return false;
+	}
+
+	const FMazeGrid& Grid = Asset->Grid;
+	const int32 SliceY = Grid.Depth.PlaneCellY();
+	const FIntPoint CellXZ(HoveredCell.X, HoveredCell.Z);
+	const int32 Tolerance = LadderTopTolerance(Grid);
+	FMazeShaft Column;
+
+	// Every lift whose shaft takes in column X between MinZ and MaxZ, inclusive.
+	auto FindLifts = [Spawns, Library](int32 X, int32 MinZ, int32 MaxZ, TArray<int32>& Out)
+	{
+		for (int32 Index = 0; Index < Spawns->Placements.Num(); ++Index)
+		{
+			const FMazePlacement& Piece = Spawns->Placements[Index];
+			const FMazeObjectType* Type = Library->FindType(Piece.TypeId);
+			if (!Type || Type->LiftRole != EMazeLiftRole::Platform)
+			{
+				continue;
+			}
+			const int32 Width = FMath::Max(1, Type->FootprintCells.X);
+			const int32 Top = Piece.CellXZ.Y + FMath::Max(0, Piece.ClimbCells);
+			if (Piece.CellXZ.X <= X && X < Piece.CellXZ.X + Width && Piece.CellXZ.Y <= MaxZ && MinZ <= Top)
+			{
+				Out.Add(Index);
+			}
+		}
+	};
+
+	if (bShift)
+	{
+		if (bLadderStarted)
+		{
+			bLadderStarted = false;
+			return true;
+		}
+
+		if (!MazeLadders::FindColumn(Grid, SliceY, CellXZ, Column))
+		{
+			return false;
+		}
+
+		TArray<int32> Doomed;
+		FindLifts(CellXZ.X, Column.Bottom.Y, Column.CeilingZ == INDEX_NONE ? MAX_int32 - 1 : Column.CeilingZ, Doomed);
+		if (Doomed.Num() == 0)
+		{
+			return false;
+		}
+
+		const FScopedTransaction Transaction(LOCTEXT("MazeEraseLift", "MazeForge: Remove Lift"));
+		for (int32 Index = Doomed.Num() - 1; Index >= 0; --Index)
+		{
+			Spawns->RemoveAt(Doomed[Index]);
+		}
+		return true;
+	}
+
+	const FName LiftType = ResolveLiftType();
+	if (LiftType.IsNone())
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Lift: no platform type. Click the swatch of a library type with Lift Role = Platform."));
+		return false;
+	}
+
+	// First click: the lower stop — the floor of the shaft, or the nearest exit.
+	if (!bLadderStarted)
+	{
+		if (!MazeLadders::FindColumn(Grid, SliceY, CellXZ, Column))
+		{
+			UE_LOG(LogMazeForge, Warning, TEXT("Lift: X %d Z %d is mass — the stop goes in empty space."),
+				CellXZ.X, CellXZ.Y);
+			return false;
+		}
+
+		int32 Level = MazeLadders::LevelAtOrBelow(Column, CellXZ.Y);
+		for (const int32 Exit : Column.Exits)
+		{
+			if (FMath::Abs(Exit - CellXZ.Y) <= Tolerance && FMath::Abs(Exit - CellXZ.Y) < FMath::Abs(Level - CellXZ.Y))
+			{
+				Level = Exit;
+			}
+		}
+
+		LadderStart = FIntPoint(Column.Bottom.X, Level);
+		bLadderStartOnFloor = Level == Column.Bottom.Y;
+		bLadderStarted = true;
+		StartedTool = static_cast<uint8>(EMazeEditTool::Lift);
+		return true;
+	}
+
+	// Second click: the upper stop, snapped to the nearest exit above the lower one.
+	const int32 Top = MazeLadders::FindColumn(Grid, SliceY, LadderStart, Column)
+		? MazeLadders::SnapTop(Column, LadderStart.Y, CellXZ.Y, Tolerance) : INDEX_NONE;
+	if (Top == INDEX_NONE)
+	{
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Lift: the upper stop has to be above the lower one (Z %d), in the same free column."),
+			LadderStart.Y);
+		return false;
+	}
+
+	const FMazeObjectType* Type = Library->FindType(LiftType);
+
+	FMazePlacement Lift;
+	Lift.TypeId = LiftType;
+	Lift.CellXZ = LadderStart;
+	Lift.Band = EMazeDepthBand::Play;
+	Lift.ClimbCells = Top - LadderStart.Y;
+	Lift.LiftId = Settings->PaintLiftId;
+	Lift.bLiftStartsAtTop = Settings->bLiftStartsAtTop;
+	if (bLadderStartOnFloor)
+	{
+		Lift.Anchor = EMazeAnchorKind::Floor;
+	}
+	else
+	{
+		// The lower stop is in mid-shaft: nothing to stand on, so Free, pivot on the level.
+		const int32 Height = Type ? FMath::Max(1, Type->FootprintCells.Y) : 1;
+		Lift.Anchor = EMazeAnchorKind::Free;
+		Lift.Offset = FVector(0.0, 0.0, -0.5 * Height * Grid.CellSize.Z);
+	}
+
+	TArray<int32> Replaced;
+	FindLifts(LadderStart.X, LadderStart.Y, Top, Replaced);
+
+	{
+		const FScopedTransaction Transaction(LOCTEXT("MazePlaceLift", "MazeForge: Place Lift"));
+		for (int32 Index = Replaced.Num() - 1; Index >= 0; --Index)
+		{
+			Spawns->RemoveAt(Replaced[Index]);
+		}
+		Spawns->Add(Lift);
+	}
+
+	UE_LOG(LogMazeForge, Log, TEXT("Lift: '%s' at X %d, stops Z %d and Z %d (%.0f cm), waits at the %s one%s."),
+		*LiftType.ToString(), LadderStart.X, LadderStart.Y, Top, (Top - LadderStart.Y) * Grid.CellSize.Z,
+		Lift.bLiftStartsAtTop ? TEXT("upper") : TEXT("lower"),
+		Lift.LiftId.IsNone() ? TEXT("") : *FString::Printf(TEXT(", Lift Id '%s'"), *Lift.LiftId.ToString()));
 
 	bLadderStarted = false;
 	return true;

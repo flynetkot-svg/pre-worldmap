@@ -31,6 +31,18 @@ public:
 	UPROPERTY(BlueprintReadOnly, Category = "MazeForge|Progress")
 	TSet<int32> UsedPlacements;
 
+	/** Remembers a number for a placement — which stop a lift is at. Zero placement id is ignored. */
+	UFUNCTION(BlueprintCallable, Category = "MazeForge|Progress")
+	void SetState(int32 PlacementId, int32 State);
+
+	/** The number remembered for a placement. False if none was. */
+	UFUNCTION(BlueprintPure, Category = "MazeForge|Progress")
+	bool GetState(int32 PlacementId, int32& OutState) const;
+
+	/** Every remembered number, by placement id. For a save game, like Used Placements. */
+	UPROPERTY(BlueprintReadOnly, Category = "MazeForge|Progress")
+	TMap<int32, int32> PlacementStates;
+
 	/** Null-safe lookup from any actor. */
 	static UMazeProgressSubsystem* Get(const UObject* WorldContext);
 };

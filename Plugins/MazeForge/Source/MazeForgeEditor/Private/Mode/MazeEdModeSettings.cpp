@@ -386,7 +386,8 @@ FName UMazeEdModeSettings::ResolveLadderType() const
 {
 	const UMazeObjectLibrary* Library = GetObjectLibrary();
 	const FMazeObjectType* Picked = Library ? Library->FindType(PaintObjectType) : nullptr;
-	if (Picked && Picked->Category == EMazeObjectCategory::Climb && !Library->IsTopPiece(Picked->TypeId))
+	if (Picked && Picked->Category == EMazeObjectCategory::Climb && Picked->LiftRole == EMazeLiftRole::None
+		&& !Library->IsTopPiece(Picked->TypeId))
 	{
 		return Picked->TypeId;
 	}

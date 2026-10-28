@@ -25,6 +25,7 @@
 #include "PhysicsEngine/BodySetup.h"
 #include "Spawner/MazeObjectIdComponent.h"
 #include "Spawner/MazeLadders.h"
+#include "Spawner/MazeLifts.h"
 #include "Spawner/MazePlacementRules.h"
 #include "StaticMeshCompiler.h"
 #include "UObject/GCObjectScopeGuard.h"
@@ -39,7 +40,7 @@ namespace
 	 *  so that levels written by an older build are rewritten once rather than trusted.
 	 */
 	// 2: objects stand in the middle of their depth band, not in the middle of one cell of it.
-	constexpr int32 LevelFormatVersion = 2;
+	constexpr int32 LevelFormatVersion = 3;  // 3: lift terminals bind within 1.5 m
 
 	/** A struct as the Details panel would copy it: every property, including ones added later. */
 	template <typename TStruct>
@@ -872,6 +873,37 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				IdComponent->TypeId = Type->TypeId;
 				IdComponent->RoomId = Room.RoomId;
 				IdComponent->LockId = Type->LockRole != EMazeLockRole::None ? Placement.LockId : NAME_None;
+
+				// A lift is told its stops; a terminal, which lift it calls and to which stop.
+				if (Type->LiftRole == EMazeLiftRole::Platform)
+				{
+					IdComponent->LiftId = MazeLifts::ResolveId(Placement);
+					IdComponent->LiftStops = { 0.0f, static_cast<float>(FMath::Max(0, Placement.ClimbCells) * Grid.CellSize.Z) };
+					IdComponent->LiftStop = Placement.bLiftStartsAtTop ? 1 : 0;
+				}
+				else if (Type->LiftRole == EMazeLiftRole::Call)
+				{
+					FMazeLiftBinding Binding;
+					// A landing is seldom dead level with the stop: 1.5 m of give either way.
+					const int32 MaxOff = FMath::Max(1, FMath::CeilToInt(150.0 / Grid.CellSize.Z));
+					if (MazeLifts::BindCall(Spawns->Placements, Library, Placement, Binding, MaxOff))
+					{
+						IdComponent->LiftId = Binding.LiftId;
+						IdComponent->LiftStop = Binding.Stop;
+						UE_LOG(LogMazeForge, Log, TEXT("Export: lift terminal '%s' at X %d Z %d calls lift '%s' to its %s stop."),
+							*Type->TypeId.ToString(), Placement.CellXZ.X, Placement.CellXZ.Y,
+							*Binding.LiftId.ToString(), Binding.Stop == 0 ? TEXT("lower") : TEXT("upper"));
+					}
+					else
+					{
+						UE_LOG(LogMazeForge, Warning,
+							TEXT("Export: lift terminal '%s' at X %d Z %d finds no lift%s. It will call nothing."),
+							*Type->TypeId.ToString(), Placement.CellXZ.X, Placement.CellXZ.Y,
+							Placement.LiftId.IsNone()
+								? *FString::Printf(TEXT(" with a stop within %d cells of its level — stand it on the landing of a stop, or give it and the lift the same Paint Lift Id"), MaxOff)
+								: *FString::Printf(TEXT(" called '%s'"), *Placement.LiftId.ToString()));
+					}
+				}
 				Object->AddInstanceComponent(IdComponent);
 				IdComponent->RegisterComponent();
 

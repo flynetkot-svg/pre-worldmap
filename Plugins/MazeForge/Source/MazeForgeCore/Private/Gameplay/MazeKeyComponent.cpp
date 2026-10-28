@@ -32,8 +32,19 @@ void UMazeKeyComponent::BeginPlay()
 
 	if (Owner && bPickUpOnTouch)
 	{
-		Owner->OnActorBeginOverlap.AddDynamic(this, &UMazeKeyComponent::HandleOverlap);
+		Owner->OnActorBeginOverlap.AddUniqueDynamic(this, &UMazeKeyComponent::HandleOverlap);
 	}
+}
+
+void UMazeKeyComponent::EndPlay(const EEndPlayReason::Type Reason)
+{
+	// A room hidden by streaming and shown again plays BeginPlay a second time on the same
+	// actor: without this the overlap would be bound twice.
+	if (AActor* Owner = GetOwner())
+	{
+		Owner->OnActorBeginOverlap.RemoveDynamic(this, &UMazeKeyComponent::HandleOverlap);
+	}
+	Super::EndPlay(Reason);
 }
 
 void UMazeKeyComponent::HandleOverlap(AActor* OverlappedActor, AActor* OtherActor)
