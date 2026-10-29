@@ -65,6 +65,10 @@ public:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
 	float RopeLength = 0.0f;
 
+	/** A sliding door: width (X), depth (Y) and height (Z) in cm; the origin is its bottom centre. */
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MazeForge")
+	FVector DoorSize = FVector::ZeroVector;
+
 	/** The placement id of an actor, or 0 if it does not carry one. Null-safe. */
 	UFUNCTION(BlueprintPure, Category = "MazeForge")
 	static int32 GetPlacementId(const AActor* Actor);

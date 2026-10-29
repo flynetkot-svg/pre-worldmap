@@ -153,6 +153,15 @@ private:
 	/** The rope type picked in the palette, or None. */
 	FName ResolveRopeType() const;
 
+	/** The Door tool's click: the bottom, then the top. Shift — cancel or remove. */
+	bool ApplyDoorClick(bool bShift);
+
+	/** The sliding door type picked in the palette, or None. */
+	FName ResolveDoorType() const;
+
+	/** The door the Door tool would make right now: column, bottom, top. False if it cannot. */
+	bool PreviewDoor(const FMazeGrid& Grid, int32& OutX, int32& OutBottom, int32& OutTop, FString* OutReason) const;
+
 	/** The Rope tool's verdict for the hovered cell, for the HUD line. */
 	FString RopeHoverStatus(const UMazeGridAsset& Asset) const;
 

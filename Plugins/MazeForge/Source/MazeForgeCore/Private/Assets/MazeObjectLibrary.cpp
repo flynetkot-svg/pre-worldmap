@@ -35,6 +35,7 @@ FName UMazeObjectLibrary::PickVariant(FName TypeId, uint32 Hash) const
 			&& Type.LockRole == Wanted->LockRole
 			&& Type.LiftRole == Wanted->LiftRole
 			&& Type.bRope == Wanted->bRope
+			&& Type.bSlidingDoor == Wanted->bSlidingDoor
 			&& Type.TransitionRole == Wanted->TransitionRole
 			&& IsTopPiece(Type.TypeId) == bWantedTop)
 		{

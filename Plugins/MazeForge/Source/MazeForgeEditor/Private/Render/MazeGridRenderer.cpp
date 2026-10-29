@@ -309,6 +309,27 @@ void FMazeGridRenderer::DrawPlacements(FPrimitiveDrawInterface* PDI, const FMaze
 
 		const int32 SliceY = MazePlacement::BandSliceY(Grid, Placement.Band);
 
+		// A sliding door: its whole height, with slats like a shutter; a locked one crossed too.
+		if (Type && Type->bSlidingDoor && Placement.HeightCells > 0)
+		{
+			const FBox Low = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X, SliceY, Placement.CellXZ.Y));
+			const FBox High = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X + Size.X - 1, SliceY,
+				Placement.CellXZ.Y + Placement.HeightCells - 1));
+			const double Y = Low.GetCenter().Y;
+			DrawRectXZ(PDI, Low.Min.X, High.Max.X, Low.Min.Z, High.Max.Z, Y, Line);
+			const FMazeLineStyle Slat(Line.Color, Line.Thickness * 0.5f);
+			for (int32 Row = 1; Row < Placement.HeightCells; ++Row)
+			{
+				const double Z = Low.Min.Z + Row * Grid.CellSize.Z;
+				PDI->DrawLine(FVector(Low.Min.X, Y, Z), FVector(High.Max.X, Y, Z), Slat.Color, SDPG_Foreground, Slat.Thickness);
+			}
+			if (!Placement.LockId.IsNone() && Type->LockRole == EMazeLockRole::Door)
+			{
+				DrawCrossXZ(PDI, Low.Min.X, High.Max.X, Low.Min.Z, High.Max.Z, Y, Line);
+			}
+			continue;
+		}
+
 		// A rope: a sagging line along the bottom of its row, gap edge to gap edge.
 		if (Type && Type->bRope && Placement.SpanCells > 0)
 		{

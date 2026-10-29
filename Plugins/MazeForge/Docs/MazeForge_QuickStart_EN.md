@@ -1,7 +1,7 @@
 ﻿# MazeForge — Quick Start
 
 **What you get:** a world of two mazes with a working transition between them.
-**Version:** MazeForge 0.5.0 · Unreal Engine 5.8.2
+**Version:** MazeForge 0.8.0 · Unreal Engine 5.8.2
 **Field-by-field reference:** `MazeForge_Reference_EN.md`
 **По-русски:** `MazeForge_QuickStart_RU.md`
 
@@ -36,6 +36,7 @@ Anything not mentioned here, leave alone. The defaults are chosen for a first ma
 21. [Hewn rock: the Rough brush](#21-hewn-rock-the-rough-brush)
 22. [Lifts](#22-lifts)
 23. [Ropes](#23-ropes)
+24. [Sliding doors](#24-sliding-doors)
 
 ---
 
@@ -1266,13 +1267,14 @@ A rope is a taut cable over a gap. You run across it: it gives under your feet, 
 The rope is drawn as pieces of one mesh along a spline — **as many as fit its length**, each pulled to an equal share. So the texture never stretches, however long the rope is.
 
 - Your own mesh: a cylinder **along X**, say 100 cm long, with a texture running once along its length (UV 0…1 along the length, 0…1 round). Its thickness does not matter — `Thickness` sets it.
+- **The rope's material must be allowed on a spline:** open the material → Details → **Usage** → tick **`Used with Spline Meshes`** → save. Without it the game draws the rope in the default grey material (the log says `missing usage flag SplineMeshes`). An engine material (from `/Engine/...`) cannot be changed — duplicate it into the project (right click → Duplicate) and tick it on the copy. For a Material Instance the tick goes on its parent material.
 - Nothing set — the engine cylinder (`/Engine/BasicShapes/Cylinder`, standing along Z — `Mesh Axis = Z` is already set). Good enough to try, with any material through `Rope Material`.
 
 ### 23.2 The rope Blueprint
 
 1. **Blueprint Class → Actor**, `BP_Rope`. The root is the empty `DefaultSceneRoot`; nothing else is needed.
 2. **Add Component → Maze Rope.**
-3. `Rope Mesh` — your rope piece; **`Mesh Axis` — the axis it is modelled along** (your own cylinder along X — `X`). `Rope Material` — optional. `Thickness` — in cm (3).
+3. `Rope Mesh` — your rope piece; **`Mesh Axis` — the axis it is modelled along** (your own cylinder along X — `X`). `Rope Material` — optional, but **with `Used with Spline Meshes` ticked** (the material's Details → Usage; an engine material — Duplicate it into the project first), or the rope comes out grey. `Thickness` — in cm (3).
 4. Leave `Length` alone — the export writes it. Add no collision — the component lays an invisible strip under the rope for the player to stand on.
 
 ### 23.3 The anchor
@@ -1339,6 +1341,7 @@ Events: `On Boarded`, `On Fell` — for sound and animation. `Get Sag At(X)` —
 |---|---|---|
 | No rope visible, log `no Rope Mesh` | No mesh set and the engine cylinder not found | Set `Rope Mesh` |
 | The rope is short fat "barrels" across | `Mesh Axis` is not the axis the mesh is modelled along | `Mesh Axis` = the mesh's long axis |
+| The material does not show, the rope is grey; log `missing usage flag SplineMeshes` or `does not have 'Used with Spline Meshes' ticked` | The material (or an instance's parent) lacks `Used with Spline Meshes` | Tick it in Details → Usage, save; an engine material — duplicate it into the project first |
 | The texture is stretched | `Stretch Single Mesh` is on, or the mesh's UV does not run along it | Turn it off; UV 0…1 along the piece |
 | Log `Rope …: no length — … 300 cm` | The rope was not placed with the `Rope` tool, or the levels were not rebuilt | Place it with two `Rope` clicks, `Apply Changes` |
 | Refused: `… hangs in the air — no ledge or wall beside it` | The ledges differ in height by more than the tolerance (2 cells), or an end has neither ledge nor wall | Ropes are horizontal only: level the ledges; click on the ledges themselves |
@@ -1347,3 +1350,65 @@ Events: `On Boarded`, `On Fell` — for sound and animation. `Get Sag At(X)` —
 | The rope stops at the ledge edge, the hook off to the side | The hook has no `Maze Rope Anchor`, or it is beyond `Anchor Search Radius` | Add the component at the hook's eye |
 | Too little / too much sway | The string settings | More: raise `Step Kick`, `Board Kick`, `Kick Width`; lower `Wave Speed` and `Damping` |
 | The character stumbles at the edge | The rope is above or below the ledge floor | The type's `Offset Z` = 0; the rope is placed level with the ledge floor |
+
+---
+
+## 24. Sliding doors
+
+A door is a slab filling the doorway. The player comes near — it rides up into the ceiling; he goes away — it comes down. While someone stands in the door's zone (in the doorway or beside it) it stays up. Without a key it opens for anyone; with one — only for someone carrying the key of its colour, which it takes, and from then on it opens for anyone, its room reloaded or not.
+
+### 24.1 The door Blueprint
+
+1. **Blueprint Class → Actor**, `BP_SlidingDoor`. The root is the empty `DefaultSceneRoot`.
+2. **Add Component → Maze Door.** Nothing else is needed: the component builds the slab itself (by default the engine cube, stretched to the doorway) and the trigger zone. The slab shows in the editor too — after `Apply Changes` the door stands in its doorway, full height.
+3. Optionally: `Door Mesh` — your own slab mesh (stretched the same way), `Door Material`.
+4. Speeds: `Open Speed` (400 cm/s), `Close Speed` (250 cm/s), `Close Delay` (0.5 s) — how long the zone must be empty, `Trigger Distance` (150 cm) — how far from the door it notices the player.
+5. `Surface Inset` (1.5 cm) — the slab is that much thinner than the doorway on each side, so it does not flicker on the rock's faces as it rides into it; `Hide When Open` — a slab all the way up is hidden.
+
+### 24.2 The library type
+
+| Field | No key | With a key |
+|---|---|---|
+| `Type Id` | `Door` | `DoorLocked` |
+| `Actor Class` | `BP_SlidingDoor` | `BP_SlidingDoor` |
+| `Footprint Cells` | `(1, 1)` — X: the door's thickness in cells | `(1, 1)` |
+| **`Sliding Door`** | **on** | **on** |
+| `Lock Role` | `None` | **`Door`** |
+
+No height or depth to set: the height comes from placing, the depth is the Play band.
+
+> **The key thing is the `Sliding Door` tick.** It is not the `Type Id` or the name: it is a separate checkbox in the type's entry, in the **Door** group (expand the entry in `Types`, find the `Door` heading — under it a single `Sliding Door` checkbox). Until it is ticked the type is an ordinary object: its swatch switches on the `Objects` brush, the door goes down as a one-cell square, and the export does not build it. Once ticked — **save the library** (Ctrl+S in its window) and click the swatch again: the status line should show `DOOR '…'`.
+>
+> The other special types work the same way: a rope — the `Rope` tick in the **Rope** group, a lift — `Lift Role` in the **Placement** group, a ladder — `Category = Climb`.
+
+### 24.3 Placing
+
+1. Click the door swatch in the palette — `Tool = Door` switches on. For a locked door pick the colour in `Paint Lock Id`.
+2. **First click — the bottom of the doorway** (snaps to the floor). Before the click a green frame already shows the door floor to ceiling.
+3. **Second click — the top** (snaps to the ceiling within a couple of cells; the door may also stop short of it).
+4. `Shift` + click — cancel what was started, or remove the door at that cell. A new door in the same place replaces the old one.
+5. The log: `Door: 'Door' at X …, Z …..… (… cm), opens for anyone.` The map shows a full-height frame with slats; a locked one crossed as well.
+
+`Apply Changes`, save the spawn asset.
+
+### 24.4 The key
+
+The key works as in section 17: a type with `Lock Role = Key` and a `Maze Key` component, a `Maze Keyring` on the character. A locked door lets through only the key of its `Lock Id`; `Consume Key` (on) — the key leaves the ring and the door opens for anyone from then on. Without the key — the `On Refused` event (a "locked" sound, a hint). `Check Reachability` counts the door shut until the key is taken.
+
+### 24.5 Checking in game
+
+1. Walk up — the door rides up; walk through and away — after 0.5 s it comes down.
+2. Stand in the doorway — it stays up.
+3. Locked, no key — it stays shut; with the key — it opens and the key is gone; leave the room and come back — it opens with no key.
+
+### 24.6 When it does not work
+
+| What you see | Why | What to do |
+|---|---|---|
+| The door does not react | The character's `Generate Overlap Events` is off, or it is not a player (`Only Players`) | Turn it on on the capsule; clear `Only Players` for doors that open for anyone |
+| Log `Door …: no size — … 50 x 100 x 250 cm` | The door was placed with the `Objects` brush, or the levels were not rebuilt | Place it with the `Door` tool, `Apply Changes` |
+| Flicker and stripes on the rock above the door while it is up | The slab's faces lay on the rock's (z-fighting) | `Surface Inset` (1.5 cm) — the slab is a little thinner than the doorway; `Hide When Open` — a slab all the way up is hidden. Still there — `Surface Inset` 2–3 cm |
+| `Door: no door type. The brush holds '…', whose Sliding Door is off` | The `Sliding Door` tick is off or not saved; or the library has two entries with one `Type Id` | Tick it, save the library; remove the duplicate |
+| The door swatch switches on `Objects`; the map shows crossed squares at the floor and the ceiling instead of a door | `Sliding Door` is not ticked on the type (or is, and an old build's palette had not re-read the type) | Tick it; remove the squares with Ctrl+click under `Objects`; place it again with the `Door` tool |
+| Refused: `mass at X … Z … inside the doorway` | The top was clicked above the ceiling, or the doorway is narrower than the door | Click the top lower; `Footprint Cells.X` to the doorway's width |
+| A locked door opens for anyone | The type's `Lock Role` is not `Door`, or the door's `Lock Id` is empty | `Lock Role = Door`, place it again with `Paint Lock Id` |

@@ -1,7 +1,7 @@
 ﻿# MazeForge — Reference
 
 **For:** looking up what a particular field, button or log line means.
-**Version:** MazeForge 0.5.0 · Unreal Engine 5.8.2
+**Version:** MazeForge 0.8.0 · Unreal Engine 5.8.2
 **How to build a first world:** `MazeForge_QuickStart_EN.md`
 **По-русски:** `MazeForge_Reference_RU.md`
 
@@ -35,6 +35,7 @@ In the tables, "Default" is what a freshly created asset has in that field. "Set
 17. [Ladders](#17-ladders)
 18. [Lifts](#18-lifts)
 19. [Ropes](#19-ropes)
+20. [Sliding doors](#20-sliding-doors)
 
 ---
 
@@ -446,6 +447,7 @@ The only field is `Types`. Each entry:
 | `Lock Role` | `None` | required for doors and keys | `Door` closes the passage it stands in, floor to ceiling, until a key with the same `Lock Id` has been picked up; `Key` is picked up on touch. The reachability check and `Generate Locks` read it. In the game the actor needs a `Maze Lock` or `Maze Key` component. |
 | `Lift Role` | `None` | required for lifts | `Platform` — a lift platform, placed with the `Lift` tool (two clicks); `Call` — a call terminal, placed with the brush. The platform's palette swatch switches on `Tool = Lift` by itself. In the game the actors need `Maze Lift` and `Maze Lift Call`. In detail: [18](#18-lifts). |
 | `Rope` | off | required for ropes | The type is a rope over a gap, placed with the `Rope` tool (two clicks). `Rope Anchor Type` — the anchor at its ends. In the game the actor needs `Maze Rope`. In detail: [19](#19-ropes). |
+| `Sliding Door` | off | required for sliding doors | The type is a door that rides up as someone comes near, placed with the `Door` tool (two clicks). With `Lock Role = Door` — locked. In the game the actor needs `Maze Door`. In detail: [20](#20-sliding-doors). |
 
 > **Why `Scale` lives here.** The export owns every actor it makes: each `Apply Changes` destroys them and builds them again from the type. A size typed into the level survives exactly until the next `Apply`. Set here, it comes back every time.
 >
@@ -826,6 +828,7 @@ Two roles and no names. The world graph keys a transition by its placement id, w
 | `Rough` | Marks rock to be chipped at bake. |
 | `Lift` | Places a lift: the lower stop, then the upper. |
 | `Rope` | Stretches a rope: one ledge, then the other. |
+| `Door` | Stands a sliding door: the bottom, then the top. |
 
 ---
 
@@ -1206,7 +1209,7 @@ A rope is neither fit-checked nor snapped: the actor is spawned with no rotation
 |---|---|---|
 | `Length` | from the placement | Length in cm. |
 | `Rope Mesh`, `Mesh Axis` | engine cylinder, `Z` | The rope piece and its long axis. Pieces are laid end to end along the spline, `round(Length / piece length)` of them (1…96), each pulled to an equal share — the texture keeps its scale. |
-| `Rope Material` | empty | Instead of the mesh's materials. |
+| `Rope Material` | empty | Instead of the mesh's materials. The material (or an instance's parent) needs `Used with Spline Meshes` ticked under Usage, or the default material is drawn; the component says so in the log. |
 | `Thickness` | 3 cm | Thickness, whatever the mesh's own. |
 | `Stretch Single Mesh` | off | One piece over the whole length. |
 | `Rest Sag` | 4 cm | Sag with nobody on it, a parabola. |
@@ -1222,3 +1225,38 @@ The carrying strip is an invisible `BlockAll` box with its top on the cable's li
 ### Maze Rope Anchor (on the hook)
 
 The point the rope comes out of: a component on the hook or post Blueprint, moved to its eye. It registers with the world when loaded; a rope takes the one nearest its end within `Anchor Search Radius`.
+
+---
+
+## 20. Sliding doors
+
+### Fields
+
+| Where | Field | Meaning |
+|---|---|---|
+| Library type | `Sliding Door` | The type is a sliding door. Its swatch switches on `Tool = Door`. Width — `Footprint Cells.X`; `Footprint Cells.Y`, anchors, `Scale`, rotation do not apply. With `Lock Role = Door` — locked. |
+| Placement | `Height Cells` | Height in cells from its own cell up. `0` (say, from `Generate Locks`) — measured floor to ceiling at export. |
+| Placement | `Lock Id` | A locked door's key (`Paint Lock Id` when placed). |
+| `Maze Object Id` | `Door Size` | Width × depth × height in cm; written by the export: width and height — cells × cell size, depth — `Play Cells × Cell Size Y`. |
+
+### Export
+
+No fit check and no snap: the actor gets no rotation or scale, its origin at the door's bottom centre (X — the middle of its width, Y — the middle of the Play band, Z — the floor of its bottom cell), plus the type's `Offset` in X and Z.
+
+### Maze Door (on the door)
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Size` | from the placement | Width, depth, height in cm. |
+| `Door Mesh`, `Door Material` | engine cube, empty | The slab: the mesh's bounds stretched to `Size`, bottom on the component's origin. `BlockAll` collision. |
+| `Surface Inset` | 1.5 cm | The slab is that much thinner than the doorway on each side in X and Y — against flicker on the rock's faces. |
+| `Hide When Open` | on | A slab all the way up (with `Open Fraction` ≥ 1) is hidden. |
+| `Open Speed`, `Close Speed` | 400, 250 cm/s | Speeds up and down. |
+| `Open Fraction` | 1 | What share of its height it rises. |
+| `Close Delay` | 0.5 s | How long the zone is empty before it comes down. |
+| `Trigger Distance` | 150 cm | The zone: the doorway plus this much either side along X, full height. |
+| `Only Players` | on | Only player-controlled pawns open it. |
+| `Lock Id` | from the placement | Empty — not locked. |
+| `Consume Key` | on | Take the key off the ring when it opens. |
+
+It comes down only on an empty zone: while any pawn is in it, the slab stays up. A door unlocked with a key is marked in `Maze Progress` (`Mark Used`) and stays unlocked when its room reloads. Events: `On Opening`, `On Closing`, `On Closed`, `On Unlocked(Pawn)`, `On Refused(Pawn)` (once per visit). `Open Amount` — 0…1.

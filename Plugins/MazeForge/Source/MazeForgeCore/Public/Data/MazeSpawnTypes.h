@@ -284,6 +284,17 @@ struct MAZEFORGECORE_API FMazeObjectType
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	EMazeLiftRole LiftRole = EMazeLiftRole::None;
 
+	// ------------------------------------------------------------------ sliding door
+
+	/**
+	 *  A door that slides up into the ceiling as someone comes near and back down when they
+	 *  have gone. Stood with the Door tool, two clicks — its bottom, its top; it is as wide as
+	 *  Footprint Cells X and as deep as the Play band. The actor needs a Maze Door component.
+	 *  Lock Role Door — it wants the key of its Lock Id the first time; None — it opens for anyone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Door")
+	bool bSlidingDoor = false;
+
 	// ------------------------------------------------------------------ rope
 
 	/**
@@ -474,6 +485,13 @@ struct MAZEFORGECORE_API FMazePlacement
 	 */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement", meta = (ClampMin = "0"))
 	int32 SpanCells = 0;
+
+	/**
+	 *  For a sliding door: how many cells tall it is, from its own cell up. 0 — measured at
+	 *  export, floor to ceiling.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement", meta = (ClampMin = "0"))
+	int32 HeightCells = 0;
 
 	/** Put here by Generate Locks. The next Generate Locks, or a new maze, replaces it. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")

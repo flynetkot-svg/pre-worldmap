@@ -26,6 +26,8 @@
 #include "Spawner/MazeObjectIdComponent.h"
 #include "Spawner/MazeLadders.h"
 #include "Spawner/MazeLifts.h"
+#include "Gameplay/MazeDoorComponent.h"
+#include "Spawner/MazeDoors.h"
 #include "Spawner/MazeRopes.h"
 #include "Spawner/MazePlacementRules.h"
 #include "StaticMeshCompiler.h"
@@ -717,7 +719,9 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 			// pieces stand over the hole of the one below — the anchor rules would refuse them.
 			// A rope was fitted to its gap by the Rope tool; it hangs over nothing, by design.
 			const bool bRope = Type->bRope && Placement.SpanCells > 0;
-			const bool bFittedLadder = Placement.ClimbCells > 0 || bRope;
+			// A sliding door was fitted floor to ceiling by the Door tool, or is measured so here.
+			const bool bDoor = Type->bSlidingDoor;
+			const bool bFittedLadder = Placement.ClimbCells > 0 || bRope || bDoor;
 
 			if (!bFittedLadder && !MazePlacement::Fits(Grid, *Type, Placement.CellXZ, SliceY, PlacedAnchor))
 			{
@@ -773,6 +777,22 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 
 			FVector Location = MazePlacement::WorldLocation(Grid, *Type, Resolved);
 
+			// A sliding door's origin is its bottom centre, on the floor; it is as tall as it was
+			// placed (or floor to ceiling) and as deep as the Play band.
+			FVector DoorSize = FVector::ZeroVector;
+			if (bDoor)
+			{
+				const int32 Width = FMath::Max(1, Type->FootprintCells.X);
+				const int32 Height = Placement.HeightCells > 0
+					? Placement.HeightCells
+					: MazeDoors::MeasureHeight(Grid, SliceY, Placement.CellXZ.X, Placement.CellXZ.Y);
+				const FBox Low = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X, SliceY, Placement.CellXZ.Y));
+				Location.X = Low.Min.X + 0.5 * Width * Grid.CellSize.X + Type->Offset.X;
+				Location.Z = Low.Min.Z + Type->Offset.Z;
+				DoorSize = FVector(Width * Grid.CellSize.X, FMath::Max(1, Grid.Depth.PlayCells) * Grid.CellSize.Y,
+					Height * Grid.CellSize.Z);
+			}
+
 			// A rope's origin is its left end: the left edge of its first cell, on the bottom of its
 			// row — level with the ledges. It runs along X; the type's Offset Z still lifts it.
 			if (bRope)
@@ -786,7 +806,8 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 			// its bounds, and the bounds of a crate at twice the size are twice the size.
 			AActor* Object = ObjectClass
 				? RoomWorld->SpawnActor<AActor>(ObjectClass,
-					FTransform(bRope ? FRotator::ZeroRotator : Rotation, Location, bRope ? FVector::OneVector : Type->Scale),
+					FTransform((bRope || bDoor) ? FRotator::ZeroRotator : Rotation, Location,
+						(bRope || bDoor) ? FVector::OneVector : Type->Scale),
 					SpawnParams)
 				: nullptr;
 
@@ -850,7 +871,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				}
 			}
 
-			if (Object && Type->bSnapToAnchorSurface && !bRope)
+			if (Object && Type->bSnapToAnchorSurface && !bRope && !bDoor)
 			{
 				// Measured, not assumed. Where a mesh sits relative to its own origin is a fact
 				// about the asset, and the asset lives in the game module; the rules can only
@@ -900,6 +921,16 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				IdComponent->TypeId = Type->TypeId;
 				IdComponent->RoomId = Room.RoomId;
 				IdComponent->LockId = Type->LockRole != EMazeLockRole::None ? Placement.LockId : NAME_None;
+
+				// A door is told its size.
+				if (bDoor)
+				{
+					IdComponent->DoorSize = DoorSize;
+					if (UMazeDoorComponent* DoorComponent = Object->FindComponentByClass<UMazeDoorComponent>())
+					{
+						DoorComponent->RefreshPreview();
+					}
+				}
 
 				// A rope is told how long it is.
 				if (bRope)

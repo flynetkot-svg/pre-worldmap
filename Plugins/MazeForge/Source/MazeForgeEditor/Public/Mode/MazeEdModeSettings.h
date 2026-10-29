@@ -61,7 +61,14 @@ enum class EMazeEditTool : uint8
 	 *  The ledges are trimmed off, the rope spans the gap; an anchor goes on each ledge. Shift+click
 	 *  — cancel, or remove the rope over that cell. Which rope: a rope swatch in the palette.
 	 */
-	Rope    = 7
+	Rope    = 7,
+	/**
+	 *  Stand a sliding door: first click — its bottom (snaps to the floor), second — its top
+	 *  (snaps to the ceiling). As wide as the type's footprint, as deep as the Play band.
+	 *  Paint Lock Id goes on doors whose type has Lock Role Door. Shift+click — cancel, or
+	 *  remove the door there. Which door: a door swatch in the palette.
+	 */
+	Door    = 8
 };
 
 /** How a brush stroke is spread through the depth axis Y. */
@@ -346,7 +353,7 @@ public:
 	 *  Climb type picks the Ladder tool, anything else the object brush.
 	 */
 	UPROPERTY(VisibleAnywhere, config, Category = "Brush",
-		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Ladder || Tool == EMazeEditTool::Lift || Tool == EMazeEditTool::Rope",
+		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Ladder || Tool == EMazeEditTool::Lift || Tool == EMazeEditTool::Rope || Tool == EMazeEditTool::Door",
 			EditConditionHides))
 	FName PaintObjectType;
 
@@ -369,7 +376,7 @@ public:
 	 *  door. Ignored for objects that are neither.
 	 */
 	UPROPERTY(EditAnywhere, config, Category = "Brush",
-		meta = (EditCondition = "Tool == EMazeEditTool::Objects", EditConditionHides))
+		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Door", EditConditionHides))
 	FName PaintLockId = TEXT("Red");
 
 	/**

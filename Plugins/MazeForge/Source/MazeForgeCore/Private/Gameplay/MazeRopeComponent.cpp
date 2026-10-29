@@ -10,6 +10,7 @@
 #include "Gameplay/MazeRopeAnchorComponent.h"
 #include "GameFramework/Character.h"
 #include "GameFramework/CharacterMovementComponent.h"
+#include "Materials/Material.h"
 #include "Materials/MaterialInterface.h"
 #include "MazeForgeCore.h"
 #include "Spawner/MazeObjectIdComponent.h"
@@ -123,6 +124,33 @@ void UMazeRopeComponent::Build()
 	PieceLength = static_cast<float>(FMath::Max(1.0, Size[Axis]));
 	const double Across = FMath::Max(Size[(Axis + 1) % 3], Size[(Axis + 2) % 3]);
 	PieceScale = Across > KINDA_SMALL_NUMBER ? static_cast<float>(Thickness / Across) : 1.0f;
+
+	// A material drawn on a spline mesh needs "Used with Spline Meshes" ticked, or the game
+	// quietly draws the default grey instead — say which one, and where the tick is.
+	TArray<UMaterialInterface*> Used;
+	if (RopeMaterial)
+	{
+		Used.Add(RopeMaterial);
+	}
+	else
+	{
+		for (const FStaticMaterial& Slot : RopeMesh->GetStaticMaterials())
+		{
+			Used.Add(Slot.MaterialInterface);
+		}
+	}
+	for (const UMaterialInterface* Material : Used)
+	{
+		const UMaterial* Base = Material ? Material->GetMaterial() : nullptr;
+		if (Base && !Base->GetUsageByFlag(MATUSAGE_SplineMesh))
+		{
+			UE_LOG(LogMazeForge, Warning,
+				TEXT("Rope %s: material %s (its base %s) does not have 'Used with Spline Meshes' ticked — the rope "
+				     "is drawn with the default material. Open %s, Details → Usage → tick Used with Spline Meshes, save. "
+				     "An engine material cannot be changed: duplicate it into the project first."),
+				*Owner->GetName(), *Material->GetName(), *Base->GetPathName(), *Base->GetName());
+		}
+	}
 
 	const int32 Count = bStretchSingleMesh ? 1 : FMath::Clamp(FMath::RoundToInt(Length / PieceLength), 1, 96);
 	for (int32 Index = 0; Index < Count; ++Index)

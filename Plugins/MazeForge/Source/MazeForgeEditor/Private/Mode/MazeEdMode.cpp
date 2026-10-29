@@ -25,6 +25,7 @@
 #include "Slicers/MazeRoomSlicerBase.h"
 #include "Slicers/MazeSlicer_UniformGrid.h"
 #include "Spawner/MazeLadders.h"
+#include "Spawner/MazeDoors.h"
 #include "Spawner/MazeRopes.h"
 #include "Spawner/MazePlacementRules.h"
 #include "SceneView.h"
@@ -883,6 +884,23 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 			}
 		}
 	}
+	else if (Settings->Tool == EMazeEditTool::Door)
+	{
+		// The door as it would stand: green; red where it cannot.
+		const int32 SliceY = Grid.Depth.PlaneCellY();
+		const UMazeObjectLibrary* Library = Settings->GetObjectLibrary();
+		const FMazeObjectType* Type = Library ? Library->FindType(ResolveDoorType()) : nullptr;
+		const int32 Width = Type ? FMath::Max(1, Type->FootprintCells.X) : 1;
+		int32 DoorX = 0;
+		int32 Bottom = 0;
+		int32 Top = 0;
+		const bool bFits = PreviewDoor(Grid, DoorX, Bottom, Top, nullptr);
+		if (bLadderStarted || bFits)
+		{
+			FMazeGridRenderer::DrawCellHighlight(PDI, Grid, FIntVector(DoorX, SliceY, Bottom),
+				FIntVector(DoorX + Width - 1, SliceY, Top), bFits ? Style.BrushPaint : Style.BrushErase);
+		}
+	}
 	else if (Settings->Tool == EMazeEditTool::Rope)
 	{
 		// Before the first click: the level the rope would run at, green. After it: the gap it
@@ -1217,6 +1235,30 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			else if (Settings->Tool == EMazeEditTool::Rope)
 			{
 				Status += RopeHoverStatus(*Asset);
+			}
+			else if (Settings->Tool == EMazeEditTool::Door)
+			{
+				const FName DoorType = ResolveDoorType();
+				int32 DoorX = 0;
+				int32 Bottom = 0;
+				int32 Top = 0;
+				FString Reason;
+				if (DoorType.IsNone())
+				{
+					Status += TEXT("  |  DOOR: NO DOOR TYPE — click a sliding door swatch in the palette");
+				}
+				else if (!PreviewDoor(Asset->Grid, DoorX, Bottom, Top, &Reason))
+				{
+					Status += FString::Printf(TEXT("  |  DOOR '%s': %s  |  Shift — %s"), *DoorType.ToString(), *Reason,
+						bLadderStarted ? TEXT("cancel") : TEXT("remove the door here"));
+				}
+				else
+				{
+					Status += FString::Printf(TEXT("  |  DOOR '%s': click — the %s. X %d, Z %d..%d, %.0f cm tall  |  Shift — %s"),
+						*DoorType.ToString(), bLadderStarted ? TEXT("TOP") : TEXT("BOTTOM"), DoorX, Bottom, Top,
+						(Top - Bottom + 1) * Asset->Grid.CellSize.Z,
+						bLadderStarted ? TEXT("cancel") : TEXT("remove the door here"));
+				}
 			}
 			else if (Settings->Tool == EMazeEditTool::Lift)
 			{
@@ -1592,6 +1634,21 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 			{
 				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
 				if (bHasHover && ApplyPathClick(bShift, bCtrl) && ViewportClient)
+				{
+					ViewportClient->Invalidate(false, false);
+				}
+			}
+
+			return true;
+		}
+
+		// The Door tool, two clicks a door.
+		if (Settings->Tool == EMazeEditTool::Door)
+		{
+			if (Event == IE_Pressed)
+			{
+				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
+				if (bHasHover && ApplyDoorClick(bShift) && ViewportClient)
 				{
 					ViewportClient->Invalidate(false, false);
 				}
@@ -2196,6 +2253,205 @@ bool UMazeEdMode::ApplyLadderClick(bool bShift)
 		bLadderStartOnFloor ? TEXT("") : TEXT(", standing on the ladder below"),
 		Pieces.Num() > 1 ? *FString::Printf(TEXT(", platform '%s'"), *Pieces[1].TypeId.ToString())
 		                 : TEXT(", no platform — the type names no Top Piece Type"));
+
+	bLadderStarted = false;
+	return true;
+}
+
+// ---------------------------------------------------------------- doors
+
+FName UMazeEdMode::ResolveDoorType() const
+{
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+	if (!Library)
+	{
+		return NAME_None;
+	}
+
+	// The type picked in the palette, if it is a door — or another entry of that name that is.
+	for (const FMazeObjectType& Type : Library->Types)
+	{
+		if (Type.TypeId == Settings->PaintObjectType && Type.bSlidingDoor)
+		{
+			return Type.TypeId;
+		}
+	}
+
+	// Tool = Door with something else picked: the only door in the library will do.
+	FName Only = NAME_None;
+	for (const FMazeObjectType& Type : Library->Types)
+	{
+		if (Type.bSlidingDoor && !Type.TypeId.IsNone())
+		{
+			if (!Only.IsNone() && Only != Type.TypeId)
+			{
+				return NAME_None;   // several: which one is the palette's to say
+			}
+			Only = Type.TypeId;
+		}
+	}
+	return Only;
+}
+
+bool UMazeEdMode::PreviewDoor(const FMazeGrid& Grid, int32& OutX, int32& OutBottom, int32& OutTop, FString* OutReason) const
+{
+	const int32 SliceY = Grid.Depth.PlaneCellY();
+	const int32 Tolerance = LadderTopTolerance(Grid);
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+	const FMazeObjectType* Type = Library ? Library->FindType(ResolveDoorType()) : nullptr;
+	const int32 Width = Type ? FMath::Max(1, Type->FootprintCells.X) : 1;
+
+	if (!bLadderStarted)
+	{
+		// Before the first click: the bottom under the cursor, the door up to the ceiling above it.
+		OutX = HoveredCell.X;
+		if (!MazeDoors::PickBottom(Grid, SliceY, FIntPoint(HoveredCell.X, HoveredCell.Z), Tolerance, OutBottom))
+		{
+			OutBottom = OutTop = HoveredCell.Z;
+			if (OutReason)
+			{
+				*OutReason = TEXT("the cursor is deep in mass — click on the floor of the doorway");
+			}
+			return false;
+		}
+		OutTop = OutBottom + MazeDoors::MeasureHeight(Grid, SliceY, OutX, OutBottom) - 1;
+		return MazeDoors::IsClear(Grid, SliceY, OutX, Width, OutBottom, OutTop, OutReason);
+	}
+
+	OutX = LadderStart.X;
+	OutBottom = LadderStart.Y;
+	OutTop = MazeDoors::PickTop(Grid, SliceY, OutX, OutBottom, FMath::Max(HoveredCell.Z, OutBottom), Tolerance);
+	return MazeDoors::IsClear(Grid, SliceY, OutX, Width, OutBottom, OutTop, OutReason);
+}
+
+bool UMazeEdMode::ApplyDoorClick(bool bShift)
+{
+	UMazeGridAsset* Asset = GetTargetAsset();
+	UMazeSpawnAsset* Spawns = Settings ? Settings->GetSpawnAsset() : nullptr;
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+
+	if (!Asset || !Spawns || !Library)
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Door: the target needs a Spawns asset with a Library."));
+		bLadderStarted = false;
+		return false;
+	}
+
+	const FMazeGrid& Grid = Asset->Grid;
+	const int32 SliceY = Grid.Depth.PlaneCellY();
+	const FIntPoint CellXZ(HoveredCell.X, HoveredCell.Z);
+
+	// Doors whose cells overlap columns Lo..Hi, rows Bottom..Top.
+	auto FindDoors = [Spawns, Library](int32 Lo, int32 Hi, int32 Bottom, int32 Top, TArray<int32>& Out)
+	{
+		for (int32 Index = 0; Index < Spawns->Placements.Num(); ++Index)
+		{
+			const FMazePlacement& Piece = Spawns->Placements[Index];
+			const FMazeObjectType* PieceType = Library->FindType(Piece.TypeId);
+			if (!PieceType || !PieceType->bSlidingDoor)
+			{
+				continue;
+			}
+			const FIntRect Cells = MazeDoors::Rect(Piece, PieceType->FootprintCells.X);
+			if (Cells.Min.X <= Hi && Lo < Cells.Max.X && Cells.Min.Y <= Top && Bottom < Cells.Max.Y)
+			{
+				Out.Add(Index);
+			}
+		}
+	};
+
+	if (bShift)
+	{
+		if (bLadderStarted)
+		{
+			bLadderStarted = false;
+			return true;
+		}
+		TArray<int32> Doomed;
+		FindDoors(CellXZ.X, CellXZ.X, CellXZ.Y, CellXZ.Y, Doomed);
+		if (Doomed.Num() == 0)
+		{
+			return false;
+		}
+		const FScopedTransaction Transaction(LOCTEXT("MazeEraseDoor", "MazeForge: Remove Door"));
+		for (int32 Index = Doomed.Num() - 1; Index >= 0; --Index)
+		{
+			Spawns->RemoveAt(Doomed[Index]);
+		}
+		return true;
+	}
+
+	const FName DoorType = ResolveDoorType();
+	const FMazeObjectType* Type = Library->FindType(DoorType);
+	if (!Type)
+	{
+		const FMazeObjectType* Picked = Library->FindType(Settings->PaintObjectType);
+		int32 Doors = 0;
+		for (const FMazeObjectType& Each : Library->Types)
+		{
+			Doors += Each.bSlidingDoor ? 1 : 0;
+		}
+		UE_LOG(LogMazeForge, Warning,
+			TEXT("Door: no door type. The brush holds '%s'%s; library %s has %d type(s) with Sliding Door ticked%s."),
+			*Settings->PaintObjectType.ToString(),
+			!Picked ? TEXT(", which is not in the library") : TEXT(", whose Sliding Door is off"),
+			*GetNameSafe(Library), Doors,
+			Doors == 0 ? TEXT(" — tick Sliding Door on the door type and save the library")
+				: TEXT(" — click the door's swatch in the palette"));
+		return false;
+	}
+
+	// First click: the bottom.
+	if (!bLadderStarted)
+	{
+		int32 Bottom = 0;
+		if (!MazeDoors::PickBottom(Grid, SliceY, CellXZ, LadderTopTolerance(Grid), Bottom))
+		{
+			UE_LOG(LogMazeForge, Warning, TEXT("Door: X %d Z %d is deep in mass — click on the floor of the doorway."),
+				CellXZ.X, CellXZ.Y);
+			return false;
+		}
+		LadderStart = FIntPoint(CellXZ.X, Bottom);
+		bLadderStarted = true;
+		StartedTool = static_cast<uint8>(EMazeEditTool::Door);
+		return true;
+	}
+
+	// Second click: the top.
+	int32 DoorX = 0;
+	int32 Bottom = 0;
+	int32 Top = 0;
+	FString Reason;
+	if (!PreviewDoor(Grid, DoorX, Bottom, Top, &Reason))
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Door: %s. Click the top again, or Shift to cancel."), *Reason);
+		return false;
+	}
+
+	const int32 Width = FMath::Max(1, Type->FootprintCells.X);
+
+	FMazePlacement Door;
+	Door.TypeId = DoorType;
+	Door.CellXZ = FIntPoint(DoorX, Bottom);
+	Door.Band = EMazeDepthBand::Play;
+	Door.Anchor = EMazeAnchorKind::Floor;
+	Door.HeightCells = Top - Bottom + 1;
+	Door.LockId = Type->LockRole != EMazeLockRole::None ? Settings->PaintLockId : NAME_None;
+
+	TArray<int32> Replaced;
+	FindDoors(DoorX, DoorX + Width - 1, Bottom, Top, Replaced);
+	{
+		const FScopedTransaction Transaction(LOCTEXT("MazePlaceDoor", "MazeForge: Place Door"));
+		for (int32 Index = Replaced.Num() - 1; Index >= 0; --Index)
+		{
+			Spawns->RemoveAt(Replaced[Index]);
+		}
+		Spawns->Add(Door);
+	}
+
+	UE_LOG(LogMazeForge, Log, TEXT("Door: '%s' at X %d, Z %d..%d (%.0f cm)%s."), *DoorType.ToString(), DoorX, Bottom, Top,
+		Door.HeightCells * Grid.CellSize.Z,
+		Door.LockId.IsNone() ? TEXT(", opens for anyone") : *FString::Printf(TEXT(", locked — key '%s'"), *Door.LockId.ToString()));
 
 	bLadderStarted = false;
 	return true;
