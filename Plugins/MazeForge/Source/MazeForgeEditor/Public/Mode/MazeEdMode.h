@@ -147,6 +147,15 @@ private:
 	/** The lift platform type picked in the palette, or None. */
 	FName ResolveLiftType() const;
 
+	/** The Rope tool's click: one ledge, then the other; the rope spans the gap. Shift — cancel or remove. */
+	bool ApplyRopeClick(bool bShift);
+
+	/** The rope type picked in the palette, or None. */
+	FName ResolveRopeType() const;
+
+	/** The Rope tool's verdict for the hovered cell, for the HUD line. */
+	FString RopeHoverStatus(const UMazeGridAsset& Asset) const;
+
 	/** The Ladder tool's verdict for the hovered cell, ready to append to the HUD line. */
 	FString LadderHoverStatus(const UMazeGridAsset& Asset) const;
 
@@ -222,6 +231,9 @@ private:
 	bool bLadderStarted = false;
 	FIntPoint LadderStart = FIntPoint::ZeroValue;
 	bool bLadderStartOnFloor = true;
+
+	/** The Rope tool's first click, as clicked; LadderStart holds the level taken from it. */
+	FIntPoint RopeClick = FIntPoint::ZeroValue;
 
 	/** Which two-click tool started it: the Ladder and the Lift tool share the first click. */
 	uint8 StartedTool = 0;

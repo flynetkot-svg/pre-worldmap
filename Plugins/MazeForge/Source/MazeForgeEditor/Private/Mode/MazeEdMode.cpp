@@ -25,6 +25,7 @@
 #include "Slicers/MazeRoomSlicerBase.h"
 #include "Slicers/MazeSlicer_UniformGrid.h"
 #include "Spawner/MazeLadders.h"
+#include "Spawner/MazeRopes.h"
 #include "Spawner/MazePlacementRules.h"
 #include "SceneView.h"
 #include "Editor.h"
@@ -882,6 +883,51 @@ void UMazeEdMode::Render(const FSceneView* View, FViewport* Viewport, FPrimitive
 			}
 		}
 	}
+	else if (Settings->Tool == EMazeEditTool::Rope)
+	{
+		// Before the first click: the level the rope would run at, green. After it: the gap it
+		// would span, green, the ledges either side amber — or red where it cannot go.
+		const int32 SliceY = Grid.Depth.PlaneCellY();
+		const int32 Tolerance = LadderTopTolerance(Grid);
+		if (!bLadderStarted)
+		{
+			int32 Level = 0;
+			if (MazeRopes::PickLevel(Grid, SliceY, FIntPoint(HoveredCell.X, HoveredCell.Z), Tolerance, Level))
+			{
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, FIntVector(HoveredCell.X, SliceY, Level),
+					FIntVector(HoveredCell.X, SliceY, Level), Style.BrushPaint);
+			}
+		}
+		else
+		{
+			FMazeRopeSpan Span;
+			const int32 Level = LadderStart.Y;
+			if (MazeRopes::FindSpan(Grid, SliceY, RopeClick, LadderStart.Y, FIntPoint(HoveredCell.X, HoveredCell.Z),
+				Tolerance, Span))
+			{
+				const int32 At = Span.Level;
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, FIntVector(Span.FirstX, SliceY, At),
+					FIntVector(Span.LastX, SliceY, At), Style.BrushPaint);
+				if (Span.bLeftLedge)
+				{
+					FMazeGridRenderer::DrawCellHighlight(PDI, Grid, FIntVector(Span.FirstX - 1, SliceY, At),
+						FIntVector(Span.FirstX - 1, SliceY, At), Style.BrushBlocked);
+				}
+				if (Span.bRightLedge)
+				{
+					FMazeGridRenderer::DrawCellHighlight(PDI, Grid, FIntVector(Span.LastX + 1, SliceY, At),
+						FIntVector(Span.LastX + 1, SliceY, At), Style.BrushBlocked);
+				}
+			}
+			else
+			{
+				const int32 Lo = FMath::Min(LadderStart.X, HoveredCell.X);
+				const int32 Hi = FMath::Max(LadderStart.X, HoveredCell.X);
+				FMazeGridRenderer::DrawCellHighlight(PDI, Grid, FIntVector(Lo, SliceY, Level),
+					FIntVector(Hi, SliceY, Level), Style.BrushErase);
+			}
+		}
+	}
 	else if (Settings->Tool == EMazeEditTool::Lift)
 	{
 		// The stop the click would take, green; after the first click the shaft to be, and the
@@ -1167,6 +1213,10 @@ void UMazeEdMode::DrawHUD(FEditorViewportClient* ViewportClient, FViewport* View
 			else if (Settings->Tool == EMazeEditTool::Ladder)
 			{
 				Status += LadderHoverStatus(*Asset);
+			}
+			else if (Settings->Tool == EMazeEditTool::Rope)
+			{
+				Status += RopeHoverStatus(*Asset);
 			}
 			else if (Settings->Tool == EMazeEditTool::Lift)
 			{
@@ -1542,6 +1592,21 @@ bool UMazeEdMode::InputKey(FEditorViewportClient* ViewportClient, FViewport* Vie
 			{
 				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
 				if (bHasHover && ApplyPathClick(bShift, bCtrl) && ViewportClient)
+				{
+					ViewportClient->Invalidate(false, false);
+				}
+			}
+
+			return true;
+		}
+
+		// The Rope tool, two clicks a rope.
+		if (Settings->Tool == EMazeEditTool::Rope)
+		{
+			if (Event == IE_Pressed)
+			{
+				bHasHover = ComputeCellUnderCursor(ViewportClient, HoveredCell);
+				if (bHasHover && ApplyRopeClick(bShift) && ViewportClient)
 				{
 					ViewportClient->Invalidate(false, false);
 				}
@@ -2131,6 +2196,213 @@ bool UMazeEdMode::ApplyLadderClick(bool bShift)
 		bLadderStartOnFloor ? TEXT("") : TEXT(", standing on the ladder below"),
 		Pieces.Num() > 1 ? *FString::Printf(TEXT(", platform '%s'"), *Pieces[1].TypeId.ToString())
 		                 : TEXT(", no platform — the type names no Top Piece Type"));
+
+	bLadderStarted = false;
+	return true;
+}
+
+// ---------------------------------------------------------------- ropes
+
+FName UMazeEdMode::ResolveRopeType() const
+{
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+	const FMazeObjectType* Picked = Library ? Library->FindType(Settings->PaintObjectType) : nullptr;
+	return (Picked && Picked->bRope) ? Picked->TypeId : NAME_None;
+}
+
+FString UMazeEdMode::RopeHoverStatus(const UMazeGridAsset& Asset) const
+{
+	const FName RopeType = ResolveRopeType();
+	if (RopeType.IsNone())
+	{
+		return TEXT("  |  ROPE: NO ROPE TYPE — click a rope swatch in the palette");
+	}
+
+	const FMazeGrid& Grid = Asset.Grid;
+	const int32 SliceY = Grid.Depth.PlaneCellY();
+	if (!bLadderStarted)
+	{
+		int32 Level = 0;
+		if (!MazeRopes::PickLevel(Grid, SliceY, FIntPoint(HoveredCell.X, HoveredCell.Z), LadderTopTolerance(Grid), Level))
+		{
+			return FString::Printf(TEXT("  |  ROPE '%s': the cursor is deep in mass"), *RopeType.ToString());
+		}
+		return FString::Printf(TEXT("  |  ROPE '%s': click — ONE END, on a ledge (level Z %d)  |  Shift — remove the rope here"),
+			*RopeType.ToString(), Level);
+	}
+
+	FMazeRopeSpan Span;
+	FString Reason;
+	if (!MazeRopes::FindSpan(Grid, SliceY, RopeClick, LadderStart.Y, FIntPoint(HoveredCell.X, HoveredCell.Z),
+		LadderTopTolerance(Grid), Span, &Reason))
+	{
+		return FString::Printf(TEXT("  |  ROPE from X %d Z %d: %s  |  Shift — cancel"), RopeClick.X, LadderStart.Y, *Reason);
+	}
+	return FString::Printf(TEXT("  |  ROPE: click — THE OTHER END. Spans X %d..%d at Z %d, %.0f cm, ledges %s  |  Shift — cancel"),
+		Span.FirstX, Span.LastX, Span.Level, Span.NumCells() * Grid.CellSize.X,
+		Span.bLeftLedge && Span.bRightLedge ? TEXT("both") : (Span.bLeftLedge || Span.bRightLedge ? TEXT("one, a wall at the other") : TEXT("none, walls")));
+}
+
+bool UMazeEdMode::ApplyRopeClick(bool bShift)
+{
+	UMazeGridAsset* Asset = GetTargetAsset();
+	UMazeSpawnAsset* Spawns = Settings ? Settings->GetSpawnAsset() : nullptr;
+	const UMazeObjectLibrary* Library = Settings ? Settings->GetObjectLibrary() : nullptr;
+
+	if (!Asset || !Spawns || !Library)
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Rope: the target needs a Spawns asset with a Library."));
+		bLadderStarted = false;
+		return false;
+	}
+
+	const FMazeGrid& Grid = Asset->Grid;
+	const int32 SliceY = Grid.Depth.PlaneCellY();
+	const FIntPoint CellXZ(HoveredCell.X, HoveredCell.Z);
+
+	// A rope and the anchors at its ends: every placement that belongs to it.
+	auto RopeParts = [Spawns, Library](int32 RopeIndex, TArray<int32>& Out)
+	{
+		const FMazePlacement& Rope = Spawns->Placements[RopeIndex];
+		const FMazeObjectType* RopeType = Library->FindType(Rope.TypeId);
+		Out.AddUnique(RopeIndex);
+		if (!RopeType || RopeType->RopeAnchorType.IsNone())
+		{
+			return;
+		}
+		const FIntPoint Ends[2] = { FIntPoint(Rope.CellXZ.X - 1, Rope.CellXZ.Y),
+		                            FIntPoint(Rope.CellXZ.X + Rope.SpanCells, Rope.CellXZ.Y) };
+		for (int32 Index = 0; Index < Spawns->Placements.Num(); ++Index)
+		{
+			const FMazePlacement& Piece = Spawns->Placements[Index];
+			if (Piece.TypeId == RopeType->RopeAnchorType && (Piece.CellXZ == Ends[0] || Piece.CellXZ == Ends[1]))
+			{
+				Out.AddUnique(Index);
+			}
+		}
+	};
+
+	// Ropes whose row is Level, within a cell, and which overlap columns Lo..Hi.
+	auto FindRopes = [Spawns, Library, &RopeParts](int32 Level, int32 Lo, int32 Hi, TArray<int32>& Out)
+	{
+		for (int32 Index = 0; Index < Spawns->Placements.Num(); ++Index)
+		{
+			const FMazePlacement& Piece = Spawns->Placements[Index];
+			if (!MazeRopes::IsRope(Library, Piece) || FMath::Abs(Piece.CellXZ.Y - Level) > 1)
+			{
+				continue;
+			}
+			// The ledges either side count: a click on an anchor removes its rope too.
+			if (Piece.CellXZ.X - 1 <= Hi && Lo <= Piece.CellXZ.X + Piece.SpanCells)
+			{
+				RopeParts(Index, Out);
+			}
+		}
+	};
+
+	if (bShift)
+	{
+		if (bLadderStarted)
+		{
+			bLadderStarted = false;
+			return true;
+		}
+
+		TArray<int32> Doomed;
+		FindRopes(CellXZ.Y, CellXZ.X, CellXZ.X, Doomed);
+		if (Doomed.Num() == 0)
+		{
+			return false;
+		}
+
+		Doomed.Sort();
+		const FScopedTransaction Transaction(LOCTEXT("MazeEraseRope", "MazeForge: Remove Rope"));
+		for (int32 Index = Doomed.Num() - 1; Index >= 0; --Index)
+		{
+			Spawns->RemoveAt(Doomed[Index]);
+		}
+		return true;
+	}
+
+	const FName RopeType = ResolveRopeType();
+	if (RopeType.IsNone())
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Rope: no rope type. Click the swatch of a library type with Rope set."));
+		return false;
+	}
+
+	// First click: one end — the level is taken from it.
+	if (!bLadderStarted)
+	{
+		int32 Level = 0;
+		if (!MazeRopes::PickLevel(Grid, SliceY, CellXZ, LadderTopTolerance(Grid), Level))
+		{
+			UE_LOG(LogMazeForge, Warning, TEXT("Rope: X %d Z %d is deep in mass — click on a ledge."), CellXZ.X, CellXZ.Y);
+			return false;
+		}
+		LadderStart = FIntPoint(CellXZ.X, Level);
+		RopeClick = CellXZ;
+		bLadderStarted = true;
+		StartedTool = static_cast<uint8>(EMazeEditTool::Rope);
+		UE_LOG(LogMazeForge, Log, TEXT("Rope: one end at X %d, level Z %d. Now the other end."), CellXZ.X, Level);
+		return true;
+	}
+
+	// Second click: the other end, at the same level.
+	FMazeRopeSpan Span;
+	FString Reason;
+	if (!MazeRopes::FindSpan(Grid, SliceY, RopeClick, LadderStart.Y, CellXZ, LadderTopTolerance(Grid), Span, &Reason))
+	{
+		UE_LOG(LogMazeForge, Warning, TEXT("Rope: %s. Click the other end again, or Shift to cancel."), *Reason);
+		return false;
+	}
+
+	const FMazeObjectType* Type = Library->FindType(RopeType);
+
+	FMazePlacement Rope;
+	Rope.TypeId = RopeType;
+	Rope.CellXZ = FIntPoint(Span.FirstX, Span.Level);
+	Rope.Band = EMazeDepthBand::Play;
+	Rope.Anchor = EMazeAnchorKind::Free;
+	Rope.SpanCells = Span.NumCells();
+
+	TArray<FMazePlacement> Anchors;
+	if (Type && !Type->RopeAnchorType.IsNone() && Library->FindType(Type->RopeAnchorType))
+	{
+		for (const int32 X : { Span.bLeftLedge ? Span.FirstX - 1 : INDEX_NONE, Span.bRightLedge ? Span.LastX + 1 : INDEX_NONE })
+		{
+			if (X == INDEX_NONE)
+			{
+				continue;
+			}
+			FMazePlacement Anchor;
+			Anchor.TypeId = Type->RopeAnchorType;
+			Anchor.CellXZ = FIntPoint(X, Span.Level);
+			Anchor.Band = EMazeDepthBand::Play;
+			Anchor.Anchor = EMazeAnchorKind::Floor;
+			Anchors.Add(Anchor);
+		}
+	}
+
+	TArray<int32> Replaced;
+	FindRopes(Span.Level, Span.FirstX, Span.LastX, Replaced);
+	Replaced.Sort();
+
+	{
+		const FScopedTransaction Transaction(LOCTEXT("MazePlaceRope", "MazeForge: Place Rope"));
+		for (int32 Index = Replaced.Num() - 1; Index >= 0; --Index)
+		{
+			Spawns->RemoveAt(Replaced[Index]);
+		}
+		Spawns->Add(Rope);
+		for (const FMazePlacement& Anchor : Anchors)
+		{
+			Spawns->Add(Anchor);
+		}
+	}
+
+	UE_LOG(LogMazeForge, Log, TEXT("Rope: '%s' over X %d..%d at Z %d (%.0f cm), %d anchor(s)."),
+		*RopeType.ToString(), Span.FirstX, Span.LastX, Span.Level, Span.NumCells() * Grid.CellSize.X, Anchors.Num());
 
 	bLadderStarted = false;
 	return true;

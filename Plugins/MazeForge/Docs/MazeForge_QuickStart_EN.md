@@ -35,6 +35,7 @@ Anything not mentioned here, leave alone. The defaults are chosen for a first ma
 20. [Floors](#20-floors)
 21. [Hewn rock: the Rough brush](#21-hewn-rock-the-rough-brush)
 22. [Lifts](#22-lifts)
+23. [Ropes](#23-ropes)
 
 ---
 
@@ -1253,3 +1254,96 @@ Height is measured from the top of the jump to the landing: a jump down a shaft,
 | The character cannot step onto the platform | The platform is thicker than the character's step | Under 30 cm, or a larger `Max Step Height` |
 | The platform is the wrong width / sticks into the wall | `Footprint Cells.X` ≠ shaft width, or the first click was not in the left column | Fix the footprint, place it again |
 | The platform swatch switches on `Ladder`, not `Lift` | `Lift Role` is not `Platform` | Set `Lift Role = Platform` |
+
+---
+
+## 23. Ropes
+
+A rope is a taut cable over a gap. You run across it: it gives under your feet, shivers with every step and settles. Stand still on it longer than `Fall Delay` (0.3 s) and you drop through (and take fall damage if the character has `Maze Fall Damage`, see 22.9). It is placed like a lift — two clicks — and the anchors at its ends go down by themselves.
+
+### 23.1 The rope piece mesh
+
+The rope is drawn as pieces of one mesh along a spline — **as many as fit its length**, each pulled to an equal share. So the texture never stretches, however long the rope is.
+
+- Your own mesh: a cylinder **along X**, say 100 cm long, with a texture running once along its length (UV 0…1 along the length, 0…1 round). Its thickness does not matter — `Thickness` sets it.
+- Nothing set — the engine cylinder (`/Engine/BasicShapes/Cylinder`, standing along Z — `Mesh Axis = Z` is already set). Good enough to try, with any material through `Rope Material`.
+
+### 23.2 The rope Blueprint
+
+1. **Blueprint Class → Actor**, `BP_Rope`. The root is the empty `DefaultSceneRoot`; nothing else is needed.
+2. **Add Component → Maze Rope.**
+3. `Rope Mesh` — your rope piece; **`Mesh Axis` — the axis it is modelled along** (your own cylinder along X — `X`). `Rope Material` — optional. `Thickness` — in cm (3).
+4. Leave `Length` alone — the export writes it. Add no collision — the component lays an invisible strip under the rope for the player to stand on.
+
+### 23.3 The anchor
+
+A hook or post Blueprint `BP_RopeHook` — an ordinary mesh. It goes on the ledge at each end (its bottom on the ledge floor).
+
+To have the rope **come out of the hook** instead of stopping at the ledge edge: in `BP_RopeHook` → **Add Component → Maze Rope Anchor**, and move it to where the rope leaves — the eye of the hook, the top of the post. The rope finds such a knot near each of its ends (within `Anchor Search Radius`, 250 cm) and runs a tie of the same mesh from the edge of the gap to it. A knot in a neighbouring room is found too, once that room loads.
+
+### 23.4 Library types
+
+| Field | Rope | Anchor |
+|---|---|---|
+| `Type Id` | `Rope` | `RopeHook` |
+| `Category` | `Climb` | `Decor` |
+| `Actor Class` | `BP_Rope` | `BP_RopeHook` |
+| `Allowed Anchors` | (does not matter) | `Floor` |
+| `Footprint Cells` | (does not matter) | `(1, 1)` |
+| **`Rope`** | **on** | off |
+| **`Rope Anchor Type`** | **`RopeHook`** | empty |
+
+An empty `Rope Anchor Type` — a rope with no anchors.
+
+### 23.5 Placing
+
+1. Click the `Rope` swatch in the palette — `Tool = Rope` switches on.
+2. **First click — on one ledge** (or just above it): the level is taken from here, highlighted green.
+3. **Second click — on the other ledge**, at the same level. The highlight: the span green, the ledges for the anchors amber; red — it will not go, and the status line says why (mass in the way, no gap, an end hanging in the air).
+4. The ledges are trimmed off by themselves: the rope runs exactly from edge to edge of the gap, level with the ledges' floor. An end may also butt against a wall. A click a row or two off (on the ledge itself, in the air beside it) is fine: the level is picked within the tolerance so that both ends have ledges. The status line shows where it will go: `Spans X … at Z …, ledges both`.
+5. A gap outside every room is fine: the rope goes with the room of a ledge it is tied to, and streams with it.
+6. `Shift` + click — cancel what was started, or remove the rope (with its anchors) at that cell. A new rope in the same place replaces the old one.
+7. The log: `Rope: 'Rope' over X … at Z … (… cm), 2 anchor(s).` The map shows a sagging line in the type's color with ticks at the ends.
+
+### 23.6 Build
+
+**Check Reachability** — a rope counts as floor: the gap no longer breaks the path. `Build → Apply Changes`, save the spawn asset.
+
+### 23.7 Tuning (Maze Rope)
+
+| Field | Default | What it does |
+|---|---|---|
+| `Sag Under Feet` | 16 cm | The dip under the feet in mid-span; less near the ends |
+| `Rest Sag` | 4 cm | The sag with nobody on it |
+| `Step Kick`, `Step Distance` | 130 cm/s, 70 cm | How hard a step shakes it, and the stride |
+| `Board Kick` | 260 cm/s | The jolt of someone stepping on or jumping off |
+| `Kick Width` | 60 cm | How much rope a step throws: wider — bigger waves |
+| `Wave Speed` | 900 cm/s | Lower — bigger, more visible waves; higher — a tauter rope, a finer, faster shiver |
+| `Damping` | 1.6 | How quickly it settles: less — it sways longer |
+| `Anchor Search Radius` | 250 cm | Where to look for a `Maze Rope Anchor` by the ends; `0` — no ties to the hooks |
+| `Fall Delay` | 0.3 s | How long you may stand; `0` — never falls |
+| `Stop Speed` | 60 cm/s | Slower counts as standing |
+| `Stretch Single Mesh` | off | One mesh over the whole length — the texture stretches with it |
+
+Events: `On Boarded`, `On Fell` — for sound and animation. `Get Sag At(X)` — the sag at a point.
+
+### 23.8 Checking in game
+
+1. Take a run and cross the rope — it gives under the feet and shivers, and settles behind you.
+2. Stop in the middle — after 0.3 s the character drops through; the log says `Rope …: … stood still and fell`.
+3. Jump onto the rope from above — it bounces, and you can run on.
+
+### 23.9 When it does not work
+
+| What you see | Why | What to do |
+|---|---|---|
+| No rope visible, log `no Rope Mesh` | No mesh set and the engine cylinder not found | Set `Rope Mesh` |
+| The rope is short fat "barrels" across | `Mesh Axis` is not the axis the mesh is modelled along | `Mesh Axis` = the mesh's long axis |
+| The texture is stretched | `Stretch Single Mesh` is on, or the mesh's UV does not run along it | Turn it off; UV 0…1 along the piece |
+| Log `Rope …: no length — … 300 cm` | The rope was not placed with the `Rope` tool, or the levels were not rebuilt | Place it with two `Rope` clicks, `Apply Changes` |
+| Refused: `… hangs in the air — no ledge or wall beside it` | The ledges differ in height by more than the tolerance (2 cells), or an end has neither ledge nor wall | Ropes are horizontal only: level the ledges; click on the ledges themselves |
+| Refused: `mass at X … Z … stands in the way` | Mass between the ends at the chosen level | Click on the ledges, not on the wall above or below them; remove the bump |
+| The rope swatch switches on `Ladder` or `Objects` | `Rope` is not ticked on the type | Tick `Rope` |
+| The rope stops at the ledge edge, the hook off to the side | The hook has no `Maze Rope Anchor`, or it is beyond `Anchor Search Radius` | Add the component at the hook's eye |
+| Too little / too much sway | The string settings | More: raise `Step Kick`, `Board Kick`, `Kick Width`; lower `Wave Speed` and `Damping` |
+| The character stumbles at the edge | The rope is above or below the ledge floor | The type's `Offset Z` = 0; the rope is placed level with the ledge floor |

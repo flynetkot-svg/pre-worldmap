@@ -55,7 +55,13 @@ enum class EMazeEditTool : uint8
 	 *  ladder's. The platform waits at the lower stop unless Lift Starts At Top. Shift+click —
 	 *  cancel, or remove the lift in that column. Which platform: a lift swatch in the palette.
 	 */
-	Lift    = 6
+	Lift    = 6,
+	/**
+	 *  Stretch a rope over a gap: first click — one ledge, second — the other, at the same level.
+	 *  The ledges are trimmed off, the rope spans the gap; an anchor goes on each ledge. Shift+click
+	 *  — cancel, or remove the rope over that cell. Which rope: a rope swatch in the palette.
+	 */
+	Rope    = 7
 };
 
 /** How a brush stroke is spread through the depth axis Y. */
@@ -340,7 +346,7 @@ public:
 	 *  Climb type picks the Ladder tool, anything else the object brush.
 	 */
 	UPROPERTY(VisibleAnywhere, config, Category = "Brush",
-		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Ladder || Tool == EMazeEditTool::Lift",
+		meta = (EditCondition = "Tool == EMazeEditTool::Objects || Tool == EMazeEditTool::Ladder || Tool == EMazeEditTool::Lift || Tool == EMazeEditTool::Rope",
 			EditConditionHides))
 	FName PaintObjectType;
 

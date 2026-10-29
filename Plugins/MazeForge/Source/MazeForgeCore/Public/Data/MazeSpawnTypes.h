@@ -284,6 +284,23 @@ struct MAZEFORGECORE_API FMazeObjectType
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	EMazeLiftRole LiftRole = EMazeLiftRole::None;
 
+	// ------------------------------------------------------------------ rope
+
+	/**
+	 *  A rope stretched over a gap, run across and fallen off when stood still on. Stood with the
+	 *  Rope tool, two clicks — one ledge, the other — at one level; the actor needs a Maze Rope
+	 *  component. Footprint and anchors do not apply: the rope is as long as its gap.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope")
+	bool bRope = false;
+
+	/**
+	 *  For a rope: what is stood on the ledge at each end — a hook, a post. An ordinary library
+	 *  type, best with the Floor anchor. Empty — the rope alone.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Rope", meta = (EditCondition = "bRope"))
+	FName RopeAnchorType;
+
 	// ------------------------------------------------------------------ ladder
 
 	/**
@@ -450,6 +467,13 @@ struct MAZEFORGECORE_API FMazePlacement
 	/** For a lift: it waits at the upper stop when the game starts, not the lower. */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement")
 	bool bLiftStartsAtTop = false;
+
+	/**
+	 *  For a rope: how many cells of gap it spans, from its own cell to the right. Its cell row is
+	 *  the one the player runs in; the rope lies along the bottom of it, level with the ledges.
+	 */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Placement", meta = (ClampMin = "0"))
+	int32 SpanCells = 0;
 
 	/** Put here by Generate Locks. The next Generate Locks, or a new maze, replaces it. */
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Placement")

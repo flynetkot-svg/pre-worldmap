@@ -42,6 +42,7 @@ namespace
 		TBitArray<> Solid;
 		TArray<int32> FreeAbove; // free cells from here upwards, this one included
 		TBitArray<> Ladder;
+		TBitArray<> Walk;   // a rope under this cell
 
 		bool Inside(int32 X, int32 Z) const { return X >= 0 && Z >= 0 && X < W && Z < H; }
 		bool IsSolid(int32 X, int32 Z) const { return !Inside(X, Z) || Solid[Z * W + X]; }
@@ -78,7 +79,7 @@ namespace
 		{
 			for (int32 Dx = 0; Dx < AgentW; ++Dx)
 			{
-				if (IsSolid(X + Dx, Z - 1))
+				if (IsSolid(X + Dx, Z - 1) || (Inside(X + Dx, Z) && Walk[Z * W + X + Dx]))
 				{
 					return true;
 				}
@@ -103,6 +104,18 @@ namespace
 			{
 				Run = Out.Solid[Z * Out.W + X] ? 0 : Run + 1;
 				Out.FreeAbove[Z * Out.W + X] = Run;
+			}
+		}
+
+		Out.Walk.Init(false, Out.W * Out.H);
+		for (const FIntRect& Rect : Params.Walkways)
+		{
+			for (int32 Z = FMath::Max(0, Rect.Min.Y); Z < FMath::Min(Out.H, Rect.Max.Y); ++Z)
+			{
+				for (int32 X = FMath::Max(0, Rect.Min.X); X < FMath::Min(Out.W, Rect.Max.X); ++X)
+				{
+					Out.Walk[Z * Out.W + X] = true;
+				}
 			}
 		}
 

@@ -47,6 +47,9 @@ struct MAZEFORGECORE_API FMazeReachParams
 	/** Ladders and other climbables: XZ rectangles of cells, Min inclusive, Max exclusive. */
 	TArray<FIntRect> Climbables;
 
+	/** Ropes and other things to run across: the cells above them hold him up, as floor would. */
+	TArray<FIntRect> Walkways;
+
 	/**
 	 *  Doors close the passage they stand in, floor to ceiling, until a key with their Lock Id
 	 *  has been reached. Keys are picked up by touching them. Keys behind other doors count: the

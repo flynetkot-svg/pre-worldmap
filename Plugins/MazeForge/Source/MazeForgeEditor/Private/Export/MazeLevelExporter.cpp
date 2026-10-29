@@ -26,6 +26,7 @@
 #include "Spawner/MazeObjectIdComponent.h"
 #include "Spawner/MazeLadders.h"
 #include "Spawner/MazeLifts.h"
+#include "Spawner/MazeRopes.h"
 #include "Spawner/MazePlacementRules.h"
 #include "StaticMeshCompiler.h"
 #include "UObject/GCObjectScopeGuard.h"
@@ -218,6 +219,20 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 			const FIntPoint& Cell = Spawns->Placements[Index].CellXZ;
 
 			const FMazeRoomDesc* Owner = MazeRooms::FindAtXZ(Asset->Rooms, Cell);
+
+			// A rope spans a gap, and a gap is often in no room at all: it goes with the room of
+			// a ledge it is tied to, or of any cell it crosses.
+			const FMazePlacement& Candidate = Spawns->Placements[Index];
+			if (!Owner && MazeRopes::IsRope(Library, Candidate))
+			{
+				const int32 Span = FMath::Max(1, Candidate.SpanCells);
+				Owner = MazeRooms::FindAtXZ(Asset->Rooms, FIntPoint(Cell.X - 1, Cell.Y));
+				Owner = Owner ? Owner : MazeRooms::FindAtXZ(Asset->Rooms, FIntPoint(Cell.X + Span, Cell.Y));
+				for (int32 Step = 0; !Owner && Step < Span; ++Step)
+				{
+					Owner = MazeRooms::FindAtXZ(Asset->Rooms, FIntPoint(Cell.X + Step, Cell.Y));
+				}
+			}
 
 			if (Owner)
 			{
@@ -700,7 +715,9 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 
 			// A ladder with Climb Cells was fitted to its shaft by the ladder tools, and its upper
 			// pieces stand over the hole of the one below — the anchor rules would refuse them.
-			const bool bFittedLadder = Placement.ClimbCells > 0;
+			// A rope was fitted to its gap by the Rope tool; it hangs over nothing, by design.
+			const bool bRope = Type->bRope && Placement.SpanCells > 0;
+			const bool bFittedLadder = Placement.ClimbCells > 0 || bRope;
 
 			if (!bFittedLadder && !MazePlacement::Fits(Grid, *Type, Placement.CellXZ, SliceY, PlacedAnchor))
 			{
@@ -754,13 +771,23 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 			FMazePlacement Resolved = Placement;
 			Resolved.Anchor = PlacedAnchor;
 
-			const FVector Location = MazePlacement::WorldLocation(Grid, *Type, Resolved);
+			FVector Location = MazePlacement::WorldLocation(Grid, *Type, Resolved);
+
+			// A rope's origin is its left end: the left edge of its first cell, on the bottom of its
+			// row — level with the ledges. It runs along X; the type's Offset Z still lifts it.
+			if (bRope)
+			{
+				const FBox First = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X, SliceY, Placement.CellXZ.Y));
+				Location.X = First.Min.X;
+				Location.Z = First.Min.Z + Type->Offset.Z;
+			}
 
 			// Scale goes on at spawn, before anything measures the actor: the snap below reads
 			// its bounds, and the bounds of a crate at twice the size are twice the size.
 			AActor* Object = ObjectClass
 				? RoomWorld->SpawnActor<AActor>(ObjectClass,
-					FTransform(Rotation, Location, Type->Scale), SpawnParams)
+					FTransform(bRope ? FRotator::ZeroRotator : Rotation, Location, bRope ? FVector::OneVector : Type->Scale),
+					SpawnParams)
 				: nullptr;
 
 			if (!Object && ObjectClass)
@@ -823,7 +850,7 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				}
 			}
 
-			if (Object && Type->bSnapToAnchorSurface)
+			if (Object && Type->bSnapToAnchorSurface && !bRope)
 			{
 				// Measured, not assumed. Where a mesh sits relative to its own origin is a fact
 				// about the asset, and the asset lives in the game module; the rules can only
@@ -873,6 +900,12 @@ bool FMazeLevelExporter::ExportRooms(UMazeGridAsset* Asset, FMazeExportReport& O
 				IdComponent->TypeId = Type->TypeId;
 				IdComponent->RoomId = Room.RoomId;
 				IdComponent->LockId = Type->LockRole != EMazeLockRole::None ? Placement.LockId : NAME_None;
+
+				// A rope is told how long it is.
+				if (bRope)
+				{
+					IdComponent->RopeLength = static_cast<float>(Placement.SpanCells * Grid.CellSize.X);
+				}
 
 				// A lift is told its stops; a terminal, which lift it calls and to which stop.
 				if (Type->LiftRole == EMazeLiftRole::Platform)

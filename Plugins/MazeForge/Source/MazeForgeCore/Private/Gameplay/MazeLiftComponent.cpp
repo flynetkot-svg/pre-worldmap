@@ -244,7 +244,7 @@ bool UMazeLiftComponent::HasRider() const
 	for (const FOverlapResult& Overlap : Overlaps)
 	{
 		const ACharacter* Character = Cast<ACharacter>(Overlap.GetActor());
-		const UPrimitiveComponent* Base = Character ? Character->GetMovementBase() : nullptr;
+		const UPrimitiveComponent* Base = Character ? Cast<UPrimitiveComponent>(Character->GetMovementBaseObject()) : nullptr;
 		if (Character && Character->IsPlayerControlled() && Base && Base->GetOwner() == Owner)
 		{
 			return true;

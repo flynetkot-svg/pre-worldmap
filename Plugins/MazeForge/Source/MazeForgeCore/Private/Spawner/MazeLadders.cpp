@@ -217,7 +217,7 @@ namespace MazeLadders
 				Level = Piece.CellXZ.Y;                     // a platform: its row is the level
 			}
 			else if (Type->Category == EMazeObjectCategory::Climb && Type->LiftRole == EMazeLiftRole::None
-				&& Piece.ClimbCells > 0)
+				&& !Type->bRope && Piece.ClimbCells > 0)
 			{
 				Level = Piece.CellXZ.Y + Piece.ClimbCells;  // a sized ladder: where it ends
 			}
@@ -306,7 +306,7 @@ namespace MazeLadders
 	{
 		const FMazeObjectType* Type = Library ? Library->FindType(Placement.TypeId) : nullptr;
 		// A lift may well be filed under Climb; it is not a ladder all the same.
-		return Type && Type->LiftRole == EMazeLiftRole::None
+		return Type && Type->LiftRole == EMazeLiftRole::None && !Type->bRope
 			&& (Type->Category == EMazeObjectCategory::Climb || Library->IsTopPiece(Placement.TypeId));
 	}
 

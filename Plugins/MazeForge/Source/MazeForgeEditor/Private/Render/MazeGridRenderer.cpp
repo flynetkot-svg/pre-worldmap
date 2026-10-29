@@ -309,6 +309,34 @@ void FMazeGridRenderer::DrawPlacements(FPrimitiveDrawInterface* PDI, const FMaze
 
 		const int32 SliceY = MazePlacement::BandSliceY(Grid, Placement.Band);
 
+		// A rope: a sagging line along the bottom of its row, gap edge to gap edge.
+		if (Type && Type->bRope && Placement.SpanCells > 0)
+		{
+			const FBox First = Grid.GetCellBounds(FIntVector(Placement.CellXZ.X, SliceY, Placement.CellXZ.Y));
+			const FBox Last = Grid.GetCellBounds(
+				FIntVector(Placement.CellXZ.X + Placement.SpanCells - 1, SliceY, Placement.CellXZ.Y));
+			const double X0 = First.Min.X;
+			const double X1 = Last.Max.X;
+			const double Z = First.Min.Z;
+			const double Y = First.GetCenter().Y;
+			const double Sag = FMath::Min(0.25 * Grid.CellSize.Z, 0.05 * (X1 - X0));
+			constexpr int32 Pieces = 12;
+			FVector Prev(X0, Y, Z);
+			for (int32 Index = 1; Index <= Pieces; ++Index)
+			{
+				const double T = static_cast<double>(Index) / Pieces;
+				const FVector Next(FMath::Lerp(X0, X1, T), Y, Z - Sag * 4.0 * T * (1.0 - T));
+				PDI->DrawLine(Prev, Next, Line.Color, SDPG_Foreground, Line.Thickness);
+				Prev = Next;
+			}
+			// The ends, tied.
+			PDI->DrawLine(FVector(X0, Y, Z - 0.3 * Grid.CellSize.Z), FVector(X0, Y, Z + 0.3 * Grid.CellSize.Z),
+				Line.Color, SDPG_Foreground, Line.Thickness);
+			PDI->DrawLine(FVector(X1, Y, Z - 0.3 * Grid.CellSize.Z), FVector(X1, Y, Z + 0.3 * Grid.CellSize.Z),
+				Line.Color, SDPG_Foreground, Line.Thickness);
+			continue;
+		}
+
 		// A lift: its shaft from stop to stop, thin, and the platform, crossed, at the stop it
 		// starts at — which one that is shows at a glance.
 		if (Type && Type->LiftRole == EMazeLiftRole::Platform && Placement.ClimbCells > 0)

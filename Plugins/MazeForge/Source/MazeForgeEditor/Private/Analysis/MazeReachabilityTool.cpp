@@ -73,7 +73,13 @@ namespace
 			}
 
 			// A lift carries him its whole travel, as a ladder does its whole height.
-			if (Type->Category == EMazeObjectCategory::Climb || Type->LiftRole == EMazeLiftRole::Platform)
+			// A rope is run across: its cells hold him up, as floor would.
+			if (Type->bRope && Placement.SpanCells > 0)
+			{
+				In.Params.Walkways.Add(FIntRect(Placement.CellXZ,
+					Placement.CellXZ + FIntPoint(Placement.SpanCells, 1)));
+			}
+			else if (Type->Category == EMazeObjectCategory::Climb || Type->LiftRole == EMazeLiftRole::Platform)
 			{
 				// A ladder sized to its shaft climbs its Climb Cells, not just its footprint.
 				FIntPoint Max = Placement.MaxCellXZ(Type->FootprintCells);

@@ -34,6 +34,7 @@ In the tables, "Default" is what a freshly created asset has in that field. "Set
 16. [Reachability, paths, doors and keys](#16-reachability-paths-doors-and-keys)
 17. [Ladders](#17-ladders)
 18. [Lifts](#18-lifts)
+19. [Ropes](#19-ropes)
 
 ---
 
@@ -444,6 +445,7 @@ The only field is `Types`. Each entry:
 | `Transition Role` | `None` | required for transitions | `Gate` or `Entry`. |
 | `Lock Role` | `None` | required for doors and keys | `Door` closes the passage it stands in, floor to ceiling, until a key with the same `Lock Id` has been picked up; `Key` is picked up on touch. The reachability check and `Generate Locks` read it. In the game the actor needs a `Maze Lock` or `Maze Key` component. |
 | `Lift Role` | `None` | required for lifts | `Platform` — a lift platform, placed with the `Lift` tool (two clicks); `Call` — a call terminal, placed with the brush. The platform's palette swatch switches on `Tool = Lift` by itself. In the game the actors need `Maze Lift` and `Maze Lift Call`. In detail: [18](#18-lifts). |
+| `Rope` | off | required for ropes | The type is a rope over a gap, placed with the `Rope` tool (two clicks). `Rope Anchor Type` — the anchor at its ends. In the game the actor needs `Maze Rope`. In detail: [19](#19-ropes). |
 
 > **Why `Scale` lives here.** The export owns every actor it makes: each `Apply Changes` destroys them and builds them again from the type. A size typed into the level survives exactly until the next `Apply`. Set here, it comes back every time.
 >
@@ -823,6 +825,7 @@ Two roles and no names. The world graph keys a transition by its placement id, w
 | `Ladder` | Stands ladders, two clicks each. |
 | `Rough` | Marks rock to be chipped at bake. |
 | `Lift` | Places a lift: the lower stop, then the upper. |
+| `Rope` | Stretches a rope: one ledge, then the other. |
 
 ---
 
@@ -1175,3 +1178,47 @@ Events: `On Departed(Stop)`, `On Arrived(Stop)`, `On Crushed(Victim)`. Functions
 ### On the map
 
 A platform is drawn in its type's color: a thin shaft frame from stop to stop, and a crossed frame where the platform waits. Between the `Lift` tool's clicks the shaft to be is `Brush Paint`, the lower stop `Brush Blocked`.
+
+---
+
+## 19. Ropes
+
+### Fields
+
+| Where | Field | Meaning |
+|---|---|---|
+| Library type | `Rope` | The type is a rope. Its palette swatch switches on `Tool = Rope`. `Allowed Anchors`, `Footprint Cells`, `Scale` and rotation do not apply. |
+| Library type | `Rope Anchor Type` | The anchor type, stood on the ledge at each end. Empty — no anchors. |
+| Placement | `Span Cells` | How many cells of gap the rope spans, from its own cell to the right. Its row is the one the player runs in; the cable lies along its bottom, level with the ledges' floor. |
+| `Maze Object Id` | `Rope Length` | Length in cm, written by the export: `Span Cells × Cell Size X`. |
+
+### How the span is found
+
+The level comes from the first click: the floor under the cursor (within the ladder tolerance), or from inside mass the first free row above. Between the two clicks the row is checked: mass in the way — refused; cells with floor under them at both ends are trimmed off; nothing left — "no gap". An end without a ledge is allowed only against a wall. The span is tried at every level within the tolerance of both clicks' levels, and the best taken: ledges at both ends first, then nearest the first click. Anchors go on the ledges, with the `Floor` anchor. On export a rope belongs to the room of its cell, or, if that is in no room, to the room of its left ledge, its right ledge or any cell it crosses.
+
+### Export
+
+A rope is neither fit-checked nor snapped: the actor is spawned with no rotation or scale, its origin at the left end on the bottom of the row (+ the type's `Offset Z`), and runs along X. Anchors are ordinary objects.
+
+### Maze Rope (on the rope)
+
+| Field | Default | Meaning |
+|---|---|---|
+| `Length` | from the placement | Length in cm. |
+| `Rope Mesh`, `Mesh Axis` | engine cylinder, `Z` | The rope piece and its long axis. Pieces are laid end to end along the spline, `round(Length / piece length)` of them (1…96), each pulled to an equal share — the texture keeps its scale. |
+| `Rope Material` | empty | Instead of the mesh's materials. |
+| `Thickness` | 3 cm | Thickness, whatever the mesh's own. |
+| `Stretch Single Mesh` | off | One piece over the whole length. |
+| `Rest Sag` | 4 cm | Sag with nobody on it, a parabola. |
+| `Sag Under Feet` | 16 cm | The dip under the feet in mid-span; under a point load — two straight runs, less near the ends. |
+| `Wave Speed`, `Damping` | 900 cm/s, 1.6 | The string: wave speed and damping. A node every ~20 cm, ends fixed. |
+| `Step Kick`, `Step Distance`, `Board Kick`, `Kick Width` | 130 cm/s, 70 cm, 260 cm/s, 60 cm | Kicks: a step, stepping on / jumping off; a kick is a smooth bump `Kick Width` wide. |
+| `Anchor Search Radius` | 250 cm | How far from each end to look for a `Maze Rope Anchor`. Found — a tie from the gap edge to the knot (the same mesh pieces), no physics. Not found — looked for once a second (the hook's room may load later). |
+| `Stop Speed`, `Fall Delay` | 60 cm/s, 0.3 s | Slower than `Stop Speed` for longer than `Fall Delay` — drops through. `0` — never. |
+| `Collision Depth` | 80 cm | Width of the carrying strip across the level (Y). |
+
+The carrying strip is an invisible `BlockAll` box with its top on the cable's line; under load it drops with the cable under the feet. A character who fell ignores the strip until below it, off its ends, or 3 s later. Events: `On Boarded(Character)`, `On Fell(Character)`. `Get Sag At(X)` — sag in cm. With no load and no shiver the rope is not recomputed.
+
+### Maze Rope Anchor (on the hook)
+
+The point the rope comes out of: a component on the hook or post Blueprint, moved to its eye. It registers with the world when loaded; a rope takes the one nearest its end within `Anchor Search Radius`.
